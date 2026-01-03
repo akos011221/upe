@@ -13,12 +13,10 @@
 static pcap_t *g_pcap = NULL;
 
 static void process_packet(const uint8_t *pkt, size_t len) {
-    ipv4_info_t info;
-    if (parse_ipv4(pkt, len, &info) == 0) {
-        log_msg(LOG_DEBUG, "IPv4 %u.%u.%u.%u -> %u.%u.%u.%u proto=%u", (info.src_ip >> 24) & 0xFF,
-                (info.src_ip >> 16) & 0xFF, (info.src_ip >> 8) & 0xFF, info.src_ip & 0xFF,
-                (info.dst_ip >> 24) & 0xFF, (info.dst_ip >> 16) & 0xFF, (info.dst_ip >> 8) & 0xFF,
-                info.dst_ip & 0xFF, info.protocol);
+    flow_key_t key;
+    if (parse_flow_key(pkt, len, &key) == 0) {
+        log_msg(LOG_DEBUG, "FLOW %u:%u → %u:%u proto=%u", key.src_ip, key.src_port, key.dst_ip,
+                key.dst_port, key.protocol);
     }
 }
 
