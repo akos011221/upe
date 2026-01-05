@@ -4,13 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "flow_table.h"
+#include "rule_table.h"
 
 /*
     Start packet capture on an interface.
     Blocks until upe is stopped by signal.
 */
-int rx_start(const char *iface, const flow_table_t *ft);
+int rx_start(const char *iface, const rule_table_t *rt);
 
 /*
     Stop packet capture.

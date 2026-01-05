@@ -7,8 +7,8 @@
 #include <string.h>
 #include <time.h>
 
-#include "flow_table.h"
 #include "log.h"
+#include "rule_table.h"
 #include "rx.h"
 #include "upe.h"
 
@@ -106,37 +106,39 @@ static log_level_t verbosity_to_level(int verbose) {
     return LOG_DEBUG;
 }
 
-static void install_demo_flows(flow_table_t *ft) {
+static void install_demo_flows(rule_table_t *rt) {
     /*
         Seed the flow table with some demo flows.
     */
 
-    flow_key_t k;
-    flow_action_t a;
+    // Drop TCP 22 with the highest priority
+    rule_t r1;
+    memset(&r1, 0, sizeof(r1));
+    r1.priority = 10;
+    r1.protocol = 6;
+    r1.dst_port = 22;
+    r1.action.type = ACT_DROP;
+    r1.action.out_ifindex = 0;
+    rule_table_add(rt, &r1);
 
-    // Allow DNS
-    k.src_ip = 3232235853;
-    k.dst_ip = 3232235843;
-    k.src_port = 64983;
-    k.dst_port = 53;
-    k.protocol = 17;
+    // Fwd every TCP from 10.0.0.0/8
+    rule_t r2;
+    memset(&r2, 0, sizeof(r2));
+    r2.priority = 100;
+    r2.protocol = 6;
+    r2.src_ip = (10u << 24) | (0u << 16) | (0u << 8) | 0u; // 10.0.0.0 in host order
+    uint32_t src_mask;
+    ipv4_mask_from_prefix(8, &src_mask);
+    r2.action.type = ACT_FWD;
+    r2.action.out_ifindex = 3;
+    rule_table_add(rt, &r2);
 
-    a.type = ACT_FWD;
-    a.out_ifindex = 3;
-
-    (void)flow_table_put(ft, &k, &a);
-
-    // Allow SSH
-    k.src_ip = 3232235853;
-    k.dst_ip = 3232235843;
-    k.src_port = 64983;
-    k.dst_port = 22;
-    k.protocol = 6;
-
-    a.type = ACT_FWD;
-    a.out_ifindex = 3;
-
-    (void)flow_table_put(ft, &k, &a);
+    // Implicit deny (drop)
+    rule_t r3;
+    memset(&r3, 0, sizeof(r3));
+    r3.priority = 10000;
+    r3.action.type = ACT_DROP;
+    rule_table_add(rt, &r3);
 }
 
 int main(int argc, char **argv) {

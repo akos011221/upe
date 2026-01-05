@@ -1,6 +1,5 @@
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
-#include "flow_table.h"
 #include "log.h"
 #include "parser.h"
 #include "rx.h"
@@ -20,19 +19,22 @@ static const char *ipv4_to_str(uint32_t host_ip, char *buf, size_t buflen) {
     return inet_ntop(AF_INET, &addr, buf, (socklen_t)buflen);
 }
 
-static void process_packet(const flow_table_t *ft, const uint8_t *pkt, size_t len) {
+static void process_packet(const rule_table_t *rt, const uint8_t *pkt, size_t len) {
     flow_key_t k;
 
     if (parse_flow_key(pkt, len, &k) != 0) {
         return;
     }
 
-    flow_action_t a;
+    const rule_t *r = rule_table_match(rt, &k);
 
-    bool found = flow_table_get(ft, &k, &a);
-
-    if (!found) {
+    if (!r) {
         return;
+    }
+
+    flow_action_t a = r->action;
+    if (a.type != ACT_DROP && a.type != ACT_FWD) {
+        log_msg(LOG_DEBUG, "Unknown action type");
     }
 
     if (a.type == ACT_DROP) {
@@ -50,11 +52,11 @@ static void process_packet(const flow_table_t *ft, const uint8_t *pkt, size_t le
 }
 
 static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_char *bytes) {
-    const flow_table_t *ft = (const flow_table_t *)user;
-    process_packet(ft, bytes, hdr->caplen);
+    const rule_table_t *rt = (const rule_table_t *)user;
+    process_packet(rt, bytes, hdr->caplen);
 }
 
-int rx_start(const char *iface, const flow_table_t *ft) {
+int rx_start(const char *iface, const rule_table_t *rt) {
     char errbuf[PCAP_ERRBUF_SIZE];
     g_pcap = pcap_open_live(iface, 65535, 1, 1, errbuf);
 
@@ -65,7 +67,7 @@ int rx_start(const char *iface, const flow_table_t *ft) {
 
     log_msg(LOG_INFO, "RX started on %s", iface);
 
-    int rc = pcap_loop(g_pcap, -1, pcap_callback, (u_char *)ft);
+    int rc = pcap_loop(g_pcap, -1, pcap_callback, (u_char *)rt);
 
     log_msg(LOG_WARN, "pcap_loop exited: %d", rc);
     return 0;
