@@ -11,6 +11,7 @@ add_executable(upe
   src/rx_pcap.c
   src/parser.c
   src/flow_table.c
+  src/rule_table.c
 )
 
 target_include_directories(upe PRIVATE include)
