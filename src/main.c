@@ -8,9 +8,13 @@
 #include <time.h>
 
 #include "log.h"
+#include "pktbuf.h"
+#include "ring.h"
 #include "rule_table.h"
 #include "rx.h"
+#include "tx.h"
 #include "upe.h"
+#include "worker.h"
 
 static volatile sig_atomic_t g_stop = 0;
 
@@ -152,22 +156,78 @@ int main(int argc, char **argv) {
 
     log_set_level(verbosity_to_level(cfg.verbose));
 
-    if (rule_table_init(&cfg.rt, 4096) != 0) {
-        log_msg(LOG_ERROR, "rule_table_init failed");
+    const int WORKERS_NUM = 2;
+    const size_t RING_CAPACITY = 1024;
+    const size_t POOL_CAPACITY = 4096;
+
+    // I. Init packet pool.
+    pktbuf_pool_t pool;
+    if (pktbuf_pool_init(&pool, POOL_CAPACITY) != 0) {
+        log_msg(LOG_ERROR, "pktbuf_pool_init failed");
         return 1;
     }
 
-    log_msg(LOG_INFO, "upe started");
-    log_msg(LOG_INFO, "iface=%s, verbose=%d, duration=%d", cfg.iface, cfg.verbose,
-            cfg.duration_sec);
+    // II. Init rings; one per worker.
+    spsc_ring_t *rings = calloc((size_t)WORKERS_NUM, sizeof(spsc_ring_t));
+    for (int i = 0; i < WORKERS_NUM; i++) {
+        if (ring_init(&rings[i], RING_CAPACITY) != 0) {
+            log_msg(LOG_ERROR, "ring_init failed");
+            return 1;
+        }
+    }
 
-    install_signal_handlers();
+    // III. Init TX context
+    tx_ctx_t tx;
+    if (tx_init(&tx, cfg.iface) != 0) {
+        log_msg(LOG_ERROR, "tx_init failed");
+        return 1;
+    }
 
-    install_demo_flows(&cfg.rt);
+    // IV. Init rule table, add some demo rules
+    rule_table_t rt;
+    rule_table_init(&rt, 1024);
+    install_demo_flows(&rt);
 
-    log_msg(LOG_INFO, "starting RX");
-    rx_start(cfg.iface, &cfg.rt);
+    // V. Start workers
+    worker_t *workers = calloc((size_t)WORKERS_NUM, sizeof(worker_t));
+    for (int i = 0; i < WORKERS_NUM; i++) {
+        workers[i].worker_id = i;
+        workers[i].rx_ring = &rings[i];
+        workers[i].pool = &pool;
+        workers[i].rt = &rt;
+        workers[i].tx = &tx;
 
-    log_msg(LOG_INFO, "upe shutting down");
+        if (worker_start(&workers[i]) != 0) {
+            log_msg(LOG_ERROR, "worker_start(%d) failed", i);
+            return 1;
+        }
+    }
+
+    // VI. Start RX (blocking)
+    rx_ctx_t rx;
+    rx.iface = cfg.iface;
+    rx.pool = &pool;
+    rx.rings = rings;
+    rx.ring_count = WORKERS_NUM;
+
+    rx_start(&rx);
+
+    // VII. RX returned => stop workers and join
+    g_stop = 1;
+    for (int i = 0; i < WORKERS_NUM; i++) {
+        worker_join(&workers[i]);
+    }
+
+    // VIII. Cleanup
+    tx_close(&tx);
+    for (int i = 0; i < WORKERS_NUM; i++) {
+        ring_destroy(&rings[i]);
+    }
+    free(rings);
+
+    pktbuf_pool_destroy(&pool);
+    rule_table_destroy(&rt);
+    free(workers);
+
     return 0;
 }
