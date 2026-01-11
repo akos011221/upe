@@ -24,8 +24,4 @@ Data Flow
              |            |           |
              v            v           v
           [Action]     [Action]    [Action]
-          (Drop/TX)    (Drop/TX)   (Drop/TX)```
-
-
-
-
+          (Drop/TX)    (Drop/TX)   (Drop/TX)
