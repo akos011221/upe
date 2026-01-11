@@ -5,6 +5,7 @@
 
 #include <signal.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 #include <time.h>
 
 // Global stop flag from main; required for all workers.
@@ -44,6 +45,12 @@ static void *worker_main(void *arg) {
         }
         w->pkts_matched++;
 
+        // Update per-rule counters. Lock-free as it's a private array for each worker.
+        if (w->rule_stats) {
+            w->rule_stats[r->rule_id].packets++;
+            w->rule_stats[r->rule_id].bytes += b->len;
+        }
+
         if (r->action.type == ACT_DROP) {
             w->pkts_dropped++;
             pktbuf_free(w->pool, b);
@@ -69,6 +76,27 @@ static void *worker_main(void *arg) {
     }
 
     return NULL;
+}
+
+int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
+                const rule_table_t *rt, const tx_ctx_t *tx) {
+    if (!w || !rt) return -1;
+
+    w->worker_id = worker_id;
+    w->rx_ring = rx_ring;
+    w->pool = pool;
+    w->rt = rt;
+    w->tx = tx;
+
+    // Rule table capacity determines the size of the stats array.
+    w->rule_stats = (rule_stat_t *)calloc(rt->capacity, sizeof(rule_stat_t));
+    if (!w->rule_stats) return -1;
+
+    return 0;
+}
+
+void worker_destroy(worker_t *w) {
+    if (w && w->rule_stats) free(w->rule_stats);
 }
 
 int worker_start(worker_t *w) {

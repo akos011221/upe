@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -146,6 +147,56 @@ static void install_demo_flows(rule_table_t *rt) {
     rule_table_add(rt, &r3);
 }
 
+typedef struct {
+    worker_t *workers;
+    int num_workers;
+    const rule_table_t *rt;
+} stats_ctx_t;
+
+static void *stats_thread_func(void *arg) {
+    stats_ctx_t *ctx = (stats_ctx_t *)arg;
+
+    while (!g_stop) {
+        sleep(1); // Stats thread wakes up every second
+
+        printf("\033[2J\033[H");
+        printf("=== UPE Statistics ===\n");
+        printf("%-6s %-8s %-10s %-15s %-15s\n", "RuleID", "Priority", "Action", "Packets", "Bytes");
+        printf("-------------------------------------------------------------\n");
+
+        uint64_t total_pkts = 0;
+        uint64_t total_bytes = 0;
+
+        // Iterate over rules, ordered by priority
+        for (size_t i = 0; i < ctx->rt->count; i++) {
+            const rule_t *r = &ctx->rt->rules[i];
+            uint32_t rid = r->rule_id;
+
+            uint64_t p_sum = 0;
+            uint64_t b_sum = 0;
+
+            // Aggregate stats from all workers
+            for (int w = 0; w < ctx->num_workers; w++) {
+                if (ctx->workers[w].rule_stats) {
+                    p_sum += ctx->workers[w].rule_stats[rid].packets;
+                    b_sum += ctx->workers[w].rule_stats[rid].bytes;
+                }
+            }
+
+            if (p_sum > 0) {
+                printf("%-6u %-8u %-10s %-15lu %-15lu\n", rid, r->priority,
+                       (r->action.type == ACT_DROP) ? "DROP" : "FWD", p_sum, b_sum);
+
+                total_pkts += p_sum;
+                total_bytes += b_sum;
+            }
+        }
+        printf("-------------------------------------------------------------\n");
+        printf("TOTAL: %lu packets, %lu bytes\n", total_pkts, total_bytes);
+    }
+    return NULL;
+}
+
 int main(int argc, char **argv) {
     upe_config_t cfg;
 
@@ -192,11 +243,7 @@ int main(int argc, char **argv) {
     // V. Start workers
     worker_t *workers = calloc((size_t)WORKERS_NUM, sizeof(worker_t));
     for (int i = 0; i < WORKERS_NUM; i++) {
-        workers[i].worker_id = i;
-        workers[i].rx_ring = &rings[i];
-        workers[i].pool = &pool;
-        workers[i].rt = &rt;
-        workers[i].tx = &tx;
+        worker_init(&workers[i], i, &rings[i], &pool, &rt, &tx);
 
         if (worker_start(&workers[i]) != 0) {
             log_msg(LOG_ERROR, "worker_start(%d) failed", i);
@@ -211,10 +258,19 @@ int main(int argc, char **argv) {
     rx.rings = rings;
     rx.ring_count = WORKERS_NUM;
 
+    // Start stats thread
+    pthread_t stats_th;
+    stats_ctx_t stats_ctx = {.workers = workers, .num_workers = WORKERS_NUM, .rt = &rt};
+    pthread_create(&stats_th, NULL, stats_thread_func, &stats_ctx);
+
     rx_start(&rx);
 
     // VII. RX returned => stop workers and join
     g_stop = 1;
+
+    // Join stats thread
+    pthread_join(stats_th, NULL);
+
     for (int i = 0; i < WORKERS_NUM; i++) {
         worker_join(&workers[i]);
     }
@@ -228,6 +284,9 @@ int main(int argc, char **argv) {
 
     pktbuf_pool_destroy(&pool);
     rule_table_destroy(&rt);
+    for (int i = 0; i < WORKERS_NUM; i++) {
+        worker_destroy(&workers[i]);
+    }
     free(workers);
 
     return 0;
