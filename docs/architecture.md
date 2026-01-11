@@ -8,7 +8,8 @@ UPE is a userspace packet processing engine targeting the shared-nothing archite
 
 Data Flow
 
-```[NIC] -> [libpcap] -> [RX Thread]
+```
+[NIC] -> [libpcap] -> [RX Thread]
                           |
                           v
                      (Copy to pktbuf)
