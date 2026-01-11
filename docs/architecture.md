@@ -1,4 +1,4 @@
-1) High-level Architecture
+# 1. High-level Architecture
 
 UPE is a userspace packet processing engine targeting the shared-nothing architecture. This creates three main planes in the system:
 
