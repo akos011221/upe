@@ -1,4 +1,4 @@
-# UPE Architecture Guide (2026.01.12)
+# UPE Architecture Guide (v0.2.0-alpha)
 
 ## 1. Memory Management
 **File:** `src/pktbuf.c`
