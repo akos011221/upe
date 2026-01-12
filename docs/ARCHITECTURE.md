@@ -1,9 +1,9 @@
-# UPE Architecture Guide (Current Implementation)
+# UPE Architecture Guide (2026.01.12)
 
-## 1. Memory Management: The Global Pre-allocated Pool
+## 1. Memory Management
 **File:** `src/pktbuf.c`
 
-### The Design
+### Design
 Currently, the system uses a **Single Global Pool** protected by a mutex.
 
 *   **Zero-Allocation (Runtime):** We allocate `4096` buffers (2KB each) at startup using `calloc`. This eliminates `malloc` latency during packet processing.
@@ -11,23 +11,23 @@ Currently, the system uses a **Single Global Pool** protected by a mutex.
     *   **RX Thread** locks it to get a buffer (`pktbuf_alloc`).
     *   **Worker Threads** lock it to return a buffer (`pktbuf_free`).
 
-### API Reasoning
+### API
 *   **`pktbuf_pool_init`**: Pre-allocates the entire heap of packets. This ensures the engine never fails due to OOM (Out Of Memory) during operation.
 *   **`pktbuf_alloc` / `pktbuf_free`**: These are the synchronization points.
     *   *Current Limitation:* As core count increases, this lock becomes the bottleneck. This is the primary target for optimization in future modules (moving to per-core caches).
 
 ---
 
-## 2. Ingress & Handoff: The Lock-Free Pipeline
+## 2. Ingress & Handoff
 **File:** `src/ring.c`, `src/rx.h`
 
-### The Design
+### Design
 To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer / Single-Consumer (SPSC) Rings**.
 
 *   **Topology:** 1 RX Thread feeds $N$ Workers via $N$ distinct rings.
 *   **Data Transfer:** Only the 8-byte pointer (`pktbuf_t*`) is passed through the ring. The packet data stays in the buffer allocated from the pool.
 
-### API Reasoning
+### API
 *   **`ring_push` / `ring_pop`**:
     *   **Lock-Free:** Uses C11 `stdatomic`.
     *   **`memory_order_release` (Producer):** Ensures the pointer written to the slot is visible *before* the `head` index is updated.
@@ -36,11 +36,11 @@ To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer
 
 ---
 
-## 3. The Worker: (not yet) Shared-Nothing Architecture
+## 3. Workers
 **File:** `src/worker.c`, `include/worker.h`
 
-### The Design
-Workers are the engines of the dataplane. They are designed to be as independent as possible, though they currently share the global memory pool.
+### Design
+Workers are  dataplane. They are designed to be as independent as possible, though they currently share the global memory pool.
 
 *   **Private State:**
     *   `rx_ring`: Dedicated input channel.
@@ -51,7 +51,7 @@ Workers are the engines of the dataplane. They are designed to be as independent
 *   **Shared State (Write):**
     *   `pool`: The global packet pool (via Mutex).
 
-### API Reasoning
+### API
 *   **`worker_init`**:
     *   Allocates `w->rule_stats` based on `rt->capacity`.
     *   *Reason:* We allocate stats memory here so `worker_main` never has to check for allocation or resize arrays.
@@ -61,10 +61,10 @@ Workers are the engines of the dataplane. They are designed to be as independent
 
 ---
 
-## 4. The Policy Engine: Linear Classification
+## 4. Policy
 **File:** `src/rule_table.c` (implied context), `src/worker.c`
 
-### The Design
+### Design
 The classification engine is a linear list of rules sorted by priority.
 
 *   **Lookup:** `rule_table_match` iterates through the array.
@@ -73,20 +73,20 @@ The classification engine is a linear list of rules sorted by priority.
 
 ---
 
-## 5. Observability: Asynchronous Aggregation
+## 5. Observability
 **File:** `src/main.c` (`stats_thread_func`)
 
-### The Design
-To view the system state without slowing it down, we use a separate "Control Plane" thread.
+### Design
+To view the system state without slowing it down, we use a separate thread.
 
 *   **Mechanism:** The thread wakes up every 1 second.
 *   **Aggregation:** It loops through all `worker_t` structures and sums their private `rule_stats`.
 *   **Consistency:** It relies on the eventual consistency of reading aligned 64-bit integers. It does not lock the workers.
 
-### API Reasoning
+### API
 *   **`stats_thread_func`**:
     *   *Why `printf` with ANSI codes?* To create a "Dashboard" experience (clearing screen, fixed columns) rather than a scrolling log file.
-    *   *Why iterate workers?* This pulls the complexity of aggregation out of the hot path. The workers just increment; the stats thread does the heavy lifting of summing and formatting.
+    *   *Why iterate workers?* This pulls the complexity of aggregation out of the packet path. The workers just increment; the stats thread does the heavy lifting of summing and formatting.
 
 ---
 
