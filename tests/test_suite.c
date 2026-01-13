@@ -86,8 +86,34 @@ int test_ring_buffer(void) {
     return 0;
 }
 
+// --- 2. Rule Table related tests ---
+int test_rule_priority(void) {
+    rule_table_t rt;
+    TEST_ASSERT(rule_table_init(&rt, 10) == 0);
+
+    // Create some rules in random priority order.
+    rule_t r1 = {.priority = 100, .rule_id = 1};
+    rule_t r2 = {.priority = 10, .rule_id = 2};
+    rule_t r3 = {.priority = 66, .rule_id = 3};
+
+    rule_table_add(&rt, &r1);
+    rule_table_add(&rt, &r2);
+    rule_table_add(&rt, &r3);
+
+    // Verify that rules are sorted by priority.
+    // This is very important, because the packet matcher iterates
+    // through the array linearly and stops at first match.
+    TEST_ASSERT(rt.rules[0].priority == 10);
+    TEST_ASSERT(rt.rules[1].priority == 66);
+    TEST_ASSERT(rt.rules[2].priority == 100);
+
+    rule_table_destroy(&rt);
+    return 0;
+}
+
 int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
+    RUN_TEST(test_rule_priority);
     return 0;
 }
