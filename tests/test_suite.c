@@ -66,7 +66,7 @@ int test_ring_buffer(void) {
     // index (internal) is increasing (doesn't reset to 0). The ring must
     // wrap this new write to the beginning of the array.
     TEST_ASSERT(ring_push(&r, &e) == true);
-    // Head was 4, Capacity is 4.
+    // Head was 4, Capacity is 4. (mask=capacity-1)
     // 4 & 3 = 0, so 'e' must be at slot 0.
     TEST_ASSERT(r.slots[0] == &e);
 
