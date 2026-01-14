@@ -12,7 +12,7 @@ struct eth_hdr {
 struct ipv4_hdr {
     uint8_t ver_ihl;
     uint8_t tos;
-    uint8_t total_length;
+    uint16_t total_length;
     uint16_t id;
     uint16_t flags_frag;
     uint8_t ttl;
