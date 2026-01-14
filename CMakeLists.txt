@@ -38,3 +38,21 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(upe PRIVATE -O3)
 endif()
+
+# -- Testing --
+enable_testing()
+
+add_executable(test_suite
+    tests/test_suite.c
+    src/parser.c
+    src/pktbuf.c
+    src/ring.c
+    src/rule_table.c
+    src/log.c
+)
+target_include_directories(test_suite PRIVATE include)
+# Simulating ARM/RISC-V crashes on x86 with Alignment Sanitizer
+target_compile_options(test_suite PRIVATE -g -fsanitize=alignment)
+target_link_options(test_suite PRIVATE -fsanitize=alignment)
+
+add_test(NAME UPE_Unit_Tests COMMAND test_suite)
