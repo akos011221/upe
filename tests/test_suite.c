@@ -111,9 +111,61 @@ int test_rule_priority(void) {
     return 0;
 }
 
+// --- Packet parser related tests ---
+int test_packet_parser(void) {
+    uint8_t pkt[128];
+    memset(pkt, 0, sizeof(pkt));
+    flow_key_t k;
+
+    // Test 1) Packet too short for Ethernet header
+    TEST_ASSERT(parse_flow_key(pkt, 12, &k) == -1);
+
+    // Build a valid Ethernet header
+    struct eth_hdr {
+        uint8_t dst[6];
+        uint8_t src[6];
+        uint16_t ethertype;
+    } *eth = (struct eth_hdr *)pkt;
+    eth->ethertype = htons(0x0800); // IPv4
+
+    // Test 2) Packet too short for IP header
+    // Eth (14) + 3 byte
+    TEST_ASSERT(parse_flow_key(pkt, 17, &k) == -1);
+
+    // Build a valid IP header
+    struct ipv4_hdr {
+        uint8_t ver_ihl;
+        uint8_t tos;
+        uint16_t len;
+        uint16_t id;
+        uint16_t frag;
+        uint8_t ttl;
+        uint8_t proto;
+        uint16_t csum;
+        uint32_t src;
+        uint32_t dst;
+    } *ip = (struct ipv4_hdr *)(pkt + 14);
+    ip->ver_ihl = 0x45; // Ver 4, IHL 5
+    ip->proto = 6;      // TCP
+
+    // Test 3) Packet too short for TCP header
+    // Eth (14) + IP (20) + 3 byte
+    TEST_ASSERT(parse_flow_key(pkt, 37, &k) == -1);
+
+    // Build a valid TCP header
+    pkt[14 + 20 + 12] = 0x50;
+
+    // Test 4) Valid parse
+    // Eth (14) + IP (20) + TCP (20)
+    TEST_ASSERT(parse_flow_key(pkt, 60, &k) == 0);
+
+    return 0;
+}
+
 int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
     RUN_TEST(test_rule_priority);
+    RUN_TEST(test_packet_parser);
     return 0;
 }
