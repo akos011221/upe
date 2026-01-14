@@ -125,7 +125,7 @@ int test_packet_parser(void) {
         uint8_t dst[6];
         uint8_t src[6];
         uint16_t ethertype;
-    } *eth = (struct eth_hdr *)pkt;
+    } __attribute__((packed)) *eth = (struct eth_hdr *)pkt;
     eth->ethertype = htons(0x0800); // IPv4
 
     // Test 2) Packet too short for IP header
@@ -144,7 +144,7 @@ int test_packet_parser(void) {
         uint16_t csum;
         uint32_t src;
         uint32_t dst;
-    } *ip = (struct ipv4_hdr *)(pkt + 14);
+    } __attribute__((packed)) *ip = (struct ipv4_hdr *)(pkt + 14);
     ip->ver_ihl = 0x45; // Ver 4, IHL 5
     ip->proto = 6;      // TCP
 
