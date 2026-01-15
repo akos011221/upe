@@ -85,7 +85,6 @@ To view the system state without slowing it down, we use a separate thread.
 
 ### API
 *   **`stats_thread_func`**:
-    *   *Why `printf` with ANSI codes?* To create a "Dashboard" experience (clearing screen, fixed columns) rather than a scrolling log file.
     *   *Why iterate workers?* This pulls the complexity of aggregation out of the packet path. The workers just increment; the stats thread does the heavy lifting of summing and formatting.
 
 ---
