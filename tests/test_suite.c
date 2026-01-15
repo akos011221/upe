@@ -162,10 +162,50 @@ int test_packet_parser(void) {
     return 0;
 }
 
+// -- Packet Buffer Pool related tests ---
+int test_pktbuf_pool(void) {
+    pktbuf_pool_t pool;
+    // Test 1) Initialize a small pool
+    TEST_ASSERT(pktbuf_pool_init(&pool, 3) == 0);
+    TEST_ASSERT(pool.available == 3);
+
+    // Test 2) Allocate all buffers
+    pktbuf_t *b1 = pktbuf_alloc(&pool);
+    TEST_ASSERT(b1 != NULL);
+    pktbuf_t *b2 = pktbuf_alloc(&pool);
+    TEST_ASSERT(b2 != NULL);
+    pktbuf_t *b3 = pktbuf_alloc(&pool);
+    TEST_ASSERT(b3 != NULL);
+
+    // Test 3) Pool is exhausted (empty)
+    TEST_ASSERT(pktbuf_alloc(&pool) == NULL);
+
+    // Test 4) Free and re-alloc
+    /*
+        `pktbuf_bool` uses a pointer called `free_list`. This points to the head of
+        of the linked list of available buffers. `pktbuf_alloc` takes the buffer at
+        the head of the list. `pktbuf_free` frees the buffer and places it back at
+        the head of the list. It's a LIFO (Last-in, First-out) stack.
+
+        This is a "hot cache" optimalization, because if we just finished using `b2`,
+        it is likely still in the CPU's L1/L2 cache. Getting it back immediately is
+        faster, rather than getting a "cold" buffer that hasn't been touched in a while.
+    */
+    pktbuf_free(&pool, b2);
+    TEST_ASSERT(pool.available == 1);
+
+    pktbuf_t *b4 = pktbuf_alloc(&pool);
+    TEST_ASSERT(b4 == b2); // Freed buffer should be at head at alloc.
+
+    pktbuf_pool_destroy(&pool);
+    return 0;
+}
+
 int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
     RUN_TEST(test_rule_priority);
     RUN_TEST(test_packet_parser);
+    RUN_TEST(test_pktbuf_pool);
     return 0;
 }
