@@ -56,3 +56,8 @@ target_compile_options(test_suite PRIVATE -g -fsanitize=alignment)
 target_link_options(test_suite PRIVATE -fsanitize=alignment)
 
 add_test(NAME UPE_Unit_Tests COMMAND test_suite)
+
+# -- Benchmarks --
+add_executable(benchmark_pktbuf tests/benchmark_pktbuf.c src/pktbuf.c)
+target_include_directories(benchmark_pktbuf PRIVATE include)
+target_link_libraries(benchmark_pktbuf pthread)
