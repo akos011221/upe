@@ -4,12 +4,12 @@
 **File:** `src/pktbuf.c`
 
 ### Design
-Currently, the system uses a **Single Global Pool** protected by a mutex.
+The goal is to minimize the lock contention when multiple threads are used.
 
-*   **Zero-Allocation (Runtime):** We allocate `4096` buffers (2KB each) at startup using `calloc`. This eliminates `malloc` latency during packet processing.
-*   **Global Contention:** A single `pthread_mutex_t g_pool_lock` protects the free list.
-    *   **RX Thread** locks it to get a buffer (`pktbuf_alloc`).
-    *   **Worker Threads** lock it to return a buffer (`pktbuf_free`).
+*   **Global Pool**: A central, mutex-protected linked list of free buffers.
+*   **Thread-Local Cache (LIFO):** Each worker has its own private small cache (size 32) of buffers using `__thread` storage.
+    *   **Allocation**: Threads pop from their local cache (Lock-Free, O(1)). If empty, a burst (16 items) is fetched from the Global Pool.
+    *   **Deallocation**: Threads push to their local cache (Lock-Free, O(1)). If full, a burst (16 items) is flushed back to the Global Pool.
 
 ### API
 *   **`pktbuf_pool_init`**: Pre-allocates the entire heap of packets. This ensures the engine never fails due to OOM (Out Of Memory) during operation.
@@ -88,13 +88,3 @@ To view the system state without slowing it down, we use a separate thread.
     *   *Why iterate workers?* This pulls the complexity of aggregation out of the packet path. The workers just increment; the stats thread does the heavy lifting of summing and formatting.
 
 ---
-
-## Summary of Current Architecture
-
-| Component | Implementation Status | Bottleneck / Characteristic |
-| :--- | :--- | :--- |
-| **Memory** | Global Pool (`pktbuf_pool_t`) | **High Contention** (Global Mutex) |
-| **Ingress** | `libpcap` + SPSC Rings | **Efficient** (Lock-free handoff) |
-| **Processing** | `worker_main` | **Efficient** (No logic locks, but hits memory lock on free) |
-| **Stats** | Per-Worker Arrays | **Perfect** (Zero contention) |
-| **Scaling** | Multi-thread | Limited by the Global Pool Lock |

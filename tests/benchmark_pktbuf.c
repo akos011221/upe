@@ -6,7 +6,7 @@
 #include <time.h>
 
 // Number of alloc/free pairs per thread
-#define OPS_PER_THREAD 1000000
+#define OPS_PER_THREAD 50000000
 
 pktbuf_pool_t g_pool;
 
