@@ -111,8 +111,8 @@ int test_rule_priority(void) {
     return 0;
 }
 
-// --- Packet parser related tests ---
-int test_packet_parser(void) {
+// --- Packet parser (TCP) related tests ---
+int test_tcp_packet_parser(void) {
     uint8_t pkt[128];
     memset(pkt, 0, sizeof(pkt));
     flow_key_t k;
@@ -162,6 +162,61 @@ int test_packet_parser(void) {
     return 0;
 }
 
+// --- Packet parser (ICMP) related tests ---
+int test_icmp_packet_parser(void) {
+    uint8_t pkt[128];
+    memset(pkt, 0, sizeof(pkt));
+    flow_key_t k;
+
+    // Ethernet
+    struct eth_hdr {
+        uint8_t dst[6];
+        uint8_t src[6];
+        uint16_t ethertype;
+    } __attribute__((packed)) *eth = (struct eth_hdr *)pkt;
+    eth->ethertype = htons(0x0800);
+
+    // IP
+    struct ipv4_hdr {
+        uint8_t ver_ihl;
+        uint8_t tos;
+        uint16_t len;
+        uint16_t id;
+        uint16_t frag;
+        uint8_t ttl;
+        uint8_t proto;
+        uint16_t csum;
+        uint32_t src;
+        uint32_t dst;
+    } __attribute__((packed)) *ip = (struct ipv4_hdr *)(pkt + 14);
+    ip->ver_ihl = 0x45;
+    ip->proto = 1;
+
+    // ICMP
+    struct icmp_hdr {
+        uint8_t type;
+        uint8_t code;
+        uint16_t csum;
+        uint16_t id;
+        uint16_t seq;
+    } __attribute((packed)) *icmp = (struct icmp_hdr *)(pkt + 34);
+    icmp->type = 8;
+    icmp->code = 0;
+    icmp->id = htons(0x1234);
+
+    // Test 1) Valid ICMP
+    // Eth(14) + IP(20) + ICMP(8) = 42 bytes
+    TEST_ASSERT(parse_flow_key(pkt, 42, &k) == 0);
+    TEST_ASSERT(k.protocol == 1);
+    TEST_ASSERT(k.src_port == 0x1234); // ID mapped to SPORT
+    TEST_ASSERT(k.dst_port == 0x0800); // Type << 8 | Code to DPORT
+
+    // Test 2) Truncated ICMP header
+    TEST_ASSERT(parse_flow_key(pkt, 34 + 4, &k) == -1);
+
+    return 0;
+}
+
 // -- Packet Buffer Pool related tests ---
 int test_pktbuf_pool(void) {
     pktbuf_pool_t pool;
@@ -196,7 +251,8 @@ int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
     RUN_TEST(test_rule_priority);
-    RUN_TEST(test_packet_parser);
+    RUN_TEST(test_tcp_packet_parser);
+    RUN_TEST(test_icmp_packet_parser);
     RUN_TEST(test_pktbuf_pool);
     return 0;
 }

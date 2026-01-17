@@ -53,6 +53,14 @@ struct tcp_hdr {
     uint16_t urg_ptr;
 } __attribute__((packed));
 
+struct icmp_hdr {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint16_t id;
+    uint16_t seq;
+} __attribute__((packed));
+
 int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
     /* Ethernet header */
     if (len < sizeof(struct eth_hdr)) {
@@ -119,6 +127,17 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
 
         out->src_port = ntohs(tcp->src_port);
         out->dst_port = ntohs(tcp->dst_port);
+    } else if (out->protocol == 1) {
+        if (l4_len < sizeof(struct icmp_hdr)) {
+            return -1;
+        }
+
+        const struct icmp_hdr *icmp = (const struct icmp_hdr *)l4_ptr;
+        // Map ICMP Identifier to SPORT, and Type/Code to DPORT
+        out->src_port = ntohs(icmp->id);
+        // Pack two 8-bit values into one 16-bit integer:
+        // move `type` onto the high byte, `code` to the low byte.
+        out->dst_port = (uint16_t)((icmp->type << 8) | icmp->code);
     } else {
         return -1;
     }
