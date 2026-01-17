@@ -17,6 +17,19 @@ typedef struct {
 // __thread makes every thread get its own instance of the struct.
 static __thread thread_cache_t t_cache;
 
+static void flush_local_cache(void) {
+    if (t_cache.pool && t_cache.count > 0) {
+        pthread_mutex_lock(&g_pool_lock);
+        while (t_cache.count > 0) {
+            pktbuf_t *b = t_cache.items[--t_cache.count];
+            b->next = t_cache.pool->free_list;
+            t_cache.pool->free_list = b;
+            t_cache.pool->available++;
+        }
+        pthread_mutex_unlock(&g_pool_lock);
+    }
+}
+
 int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
     if (!p || capacity == 0) return -1;
 
@@ -57,6 +70,7 @@ pktbuf_t *pktbuf_alloc(pktbuf_pool_t *p) {
     if (!p) return NULL;
 
     if (t_cache.pool != p) {
+        flush_local_cache();
         t_cache.pool = p;
         t_cache.count = 0;
     }
@@ -96,6 +110,7 @@ void pktbuf_free(pktbuf_pool_t *p, pktbuf_t *b) {
     b->len = 0;
 
     if (t_cache.pool != p) {
+        flush_local_cache();
         t_cache.pool = p;
         t_cache.count = 0;
     }

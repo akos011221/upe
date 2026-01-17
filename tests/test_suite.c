@@ -180,19 +180,10 @@ int test_pktbuf_pool(void) {
     // Test 3) Pool is exhausted (empty)
     TEST_ASSERT(pktbuf_alloc(&pool) == NULL);
 
-    // Test 4) Free and re-alloc
-    /*
-        `pktbuf_bool` uses a pointer called `free_list`. This points to the head of
-        of the linked list of available buffers. `pktbuf_alloc` takes the buffer at
-        the head of the list. `pktbuf_free` frees the buffer and places it back at
-        the head of the list. It's a LIFO (Last-in, First-out) stack.
-
-        This is a "hot cache" optimalization, because if we just finished using `b2`,
-        it is likely still in the CPU's L1/L2 cache. Getting it back immediately is
-        faster, rather than getting a "cold" buffer that hasn't been touched in a while.
-    */
     pktbuf_free(&pool, b2);
-    TEST_ASSERT(pool.available == 1);
+    // Because of thread-local caching, the freed buffer is returned to
+    // the t_cache. Global pool is 0 until cache is flushed.
+    TEST_ASSERT(pool.available == 0);
 
     pktbuf_t *b4 = pktbuf_alloc(&pool);
     TEST_ASSERT(b4 == b2); // Freed buffer should be at head at alloc.
