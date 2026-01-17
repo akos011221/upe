@@ -1,3 +1,20 @@
+/*
+    Benchmark Packet Buffer lock contention.
+
+    This benchmark measures the overhead of the memory pool's locking mechanism
+    when multiple threads accessing it in the same time.
+
+    Relevance:
+    It was originally designed to see bottleneck of the shared global lock in the
+    packet buffer pool. Since then thread-local caching has been implemented, this
+    test now verifies that the contention is gone.
+
+    The scaling should be near-linear now (4x throughput with 4 threads).
+    It's because the benchmark keeps the cache in a "sweet spot" (it's neither empty
+    or full) => almost all packet alloc/free requests are satisfied by the thread-local
+    cache, bypassing the global mutex.
+*/
+
 #define _POSIX_C_SOURCE 199309L // clock_gettime
 #include "pktbuf.h"
 #include <pthread.h>
