@@ -30,6 +30,9 @@ static void *worker_main(void *arg) {
 
         w->pkts_in++;
 
+        // Debug: Visualize the raw packet data
+        log_hexdump(LOG_DEBUG, b->data, b->len);
+
         // Parse the flow
         flow_key_t key;
         if (parse_flow_key(b->data, b->len, &key) != 0) {

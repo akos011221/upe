@@ -2,6 +2,7 @@
 #define LOG_H
 
 #include <stdarg.h>
+#include <stddef.h>
 
 typedef enum {
     LOG_ERROR = 0,
@@ -18,5 +19,8 @@ void log_set_level(log_level_t level);
     log_msg(LOG_INFO, "Listening on %s", iface);
 */
 void log_msg(log_level_t level, const char *fmt, ...);
+
+/* Print hexdump of a memory region. */
+void log_hexdump(log_level_t level, const void *data, size_t len);
 
 #endif

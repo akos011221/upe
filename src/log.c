@@ -49,3 +49,34 @@ void log_msg(log_level_t level, const char *fmt, ...) {
 
     fprintf(stderr, "\n");
 }
+
+void log_hexdump(log_level_t level, const void *data, size_t len) {
+    if (level > g_level) {
+        return;
+    }
+
+    const unsigned char *p = (const unsigned char *)data;
+
+    for (size_t i = 0; i < len; i += 16) {
+        fprintf(stderr, "%04zx  ", i); // Offset
+
+        // Hex bytes
+        for (size_t j = 0; j < 16; j++) {
+            if (i + j < len)
+                fprintf(stderr, "%02x  ", p[i + j]);
+            else
+                fprintf(stderr, "    ");
+        }
+
+        // ASCII characters
+        fprintf(stderr, " |");
+        for (size_t j = 0; j < 16; j++) {
+            if (i + j < len) {
+                unsigned char c = p[i + j];
+                // Print printable chars, otherwise dot
+                fprintf(stderr, "%c", (c >= 32 && c <= 126) ? c : '.');
+            }
+        }
+        fprintf(stderr, "|\n");
+    }
+}
