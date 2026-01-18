@@ -15,7 +15,7 @@ typedef struct {
     pktbuf_pool_t *pool;
 
     spsc_ring_t *rings;
-    int ring_count;
+    uint32_t ring_count;
 } rx_ctx_t;
 
 int rx_start(rx_ctx_t *rx);

@@ -17,12 +17,17 @@ void rx_stop(void) {
     if (g_pcap) pcap_breakloop(g_pcap);
 }
 
-// Ronud robin distribution of packets across the rings.
-static int pick_ring_round_robin(int ring_count) {
-    static int rr = 0; // static, so keeps its value between function calls
-    int idx = rr;
+// Round robin distribution of packets across the rings.
+static uint32_t pick_ring_round_robin(uint32_t ring_count) {
+    static uint32_t rr = 0; // static, so keeps its value between function calls
+    uint32_t idx = rr;
     rr = (rr + 1) % ring_count;
     return idx;
+}
+
+// Symmetric 5-tuple hash: Hash(A->B) == Hash(B->A).
+static uint32_t flow_hash(const flow_key_t *k) {
+    return k->src_ip ^ k->dst_ip ^ k->src_port ^ k->dst_port ^ k->protocol;
 }
 
 static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_char *bytes) {
@@ -46,8 +51,17 @@ static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_c
     memcpy(b->data, bytes, hdr->caplen);
     b->len = hdr->caplen;
 
-    // Choose a worker ring.
-    int ring_id = pick_ring_round_robin(rx->ring_count);
+    // Choose a worker ring based on Flow Hash (Software RSS).
+    flow_key_t k;
+    uint32_t ring_id;
+
+    if (parse_flow_key(b->data, b->len, &k) == 0) {
+        uint32_t hash = flow_hash(&k);
+        ring_id = hash % rx->ring_count;
+    } else {
+        // Fallback to Round Robin for non-IP/malformed packets.
+        ring_id = pick_ring_round_robin(rx->ring_count);
+    }
 
     // Push the packet into the ring.
     if (!ring_push(&rx->rings[ring_id], b)) {
@@ -58,7 +72,7 @@ static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_c
 }
 
 int rx_start(rx_ctx_t *rx) {
-    if (!rx || !rx->pool || !rx->rings || rx->ring_count <= 0) return -1;
+    if (!rx || !rx->pool || !rx->rings || rx->ring_count == 0) return -1;
 
     char errbuf[PCAP_ERRBUF_SIZE];
 
