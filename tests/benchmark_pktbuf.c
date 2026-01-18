@@ -67,7 +67,7 @@ double run_benchmark(int num_threads) {
 }
 
 int main(void) {
-    printf("=-> Packet Buffer Lock Contention Benchmark ===\n");
+    printf("=-> Packet Buffer Lock Contention Benchmark <-=\n");
 
     // 1) Baseline: Single Thread
     double t1 = run_benchmark(1);
