@@ -46,9 +46,10 @@ static void install_signal_handlers(void) {
 
 static void usage(const char *prog) {
     fprintf(stderr,
-            "Usage: %s --iface <name> [--verbose <0..2>] [--duration <sec>]\n"
+            "Usage: %s [--iface <name> | --pcap <file>] [--verbose <0..2>] [--duration <sec>]\n"
             "\n"
             "  --iface     Network interface name (e.g., eth0)\n"
+            "  --pcap      PCAP file to read from (offline mode)\n"
             "  --verbose   0=warn+error, 1=info (default), 2=debug\n"
             "  --duration  Run time in seconds (0 = forever, default 0)\n",
             prog);
@@ -69,6 +70,7 @@ static int parse_int(const char *s, int *out) {
 
 static int parse_args(int argc, char **argv, upe_config_t *cfg) {
     cfg->iface = NULL;
+    cfg->pcap_file = NULL;
     cfg->verbose = 1;
     cfg->duration_sec = 0;
 
@@ -78,6 +80,9 @@ static int parse_args(int argc, char **argv, upe_config_t *cfg) {
         if (strcmp(arg, "--iface") == 0) {
             if (i + 1 >= argc) return -1;
             cfg->iface = argv[++i];
+        } else if (strcmp(arg, "--pcap") == 0) {
+            if (i + 1 >= argc) return -1;
+            cfg->pcap_file = argv[++i];
         } else if (strcmp(arg, "--verbose") == 0) {
             if (i + 1 >= argc) return -1;
             int v = 0;
@@ -97,7 +102,7 @@ static int parse_args(int argc, char **argv, upe_config_t *cfg) {
             return -1;
         }
     }
-    if (cfg->iface == NULL) {
+    if (cfg->iface == NULL && cfg->pcap_file == NULL) {
         return -1;
     }
     return 0;
@@ -230,7 +235,7 @@ int main(int argc, char **argv) {
 
     // III. Init TX context
     tx_ctx_t tx;
-    if (tx_init(&tx, cfg.iface) != 0) {
+    if (tx_init(&tx, cfg.iface ? cfg.iface : "lo") != 0) {
         log_msg(LOG_ERROR, "tx_init failed");
         return 1;
     }
@@ -254,6 +259,7 @@ int main(int argc, char **argv) {
     // VI. Start RX (blocking)
     rx_ctx_t rx;
     rx.iface = cfg.iface;
+    rx.pcap_file = cfg.pcap_file;
     rx.pool = &pool;
     rx.rings = rings;
     rx.ring_count = WORKERS_NUM;

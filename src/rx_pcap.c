@@ -58,16 +58,26 @@ static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_c
 }
 
 int rx_start(rx_ctx_t *rx) {
-    if (!rx || !rx->iface || !rx->pool || !rx->rings || rx->ring_count <= 0) return -1;
+    if (!rx || !rx->pool || !rx->rings || rx->ring_count <= 0) return -1;
 
     char errbuf[PCAP_ERRBUF_SIZE];
-    g_pcap = pcap_open_live(rx->iface, 65536, 1, 1, errbuf);
-    if (!g_pcap) {
-        log_msg(LOG_ERROR, "pcap_open_live failed: %s", errbuf);
-        return -1;
-    }
 
-    log_msg(LOG_INFO, "RX started on %s (libpcap)", rx->iface);
+    if (rx->pcap_file) {
+        g_pcap = pcap_open_offline(rx->pcap_file, errbuf);
+        if (!g_pcap) {
+            log_msg(LOG_ERROR, "pcap_open_offline failed: %s", errbuf);
+            return -1;
+        }
+        log_msg(LOG_INFO, "RX started on file %s", rx->pcap_file);
+    } else {
+        if (!rx->iface) return -1;
+        g_pcap = pcap_open_live(rx->iface, 65536, 1, 1, errbuf);
+        if (!g_pcap) {
+            log_msg(LOG_ERROR, "pcap_open_live failed: %s", errbuf);
+            return -1;
+        }
+        log_msg(LOG_INFO, "RX started on %s (libpcap)", rx->iface);
+    }
 
     int rc = pcap_loop(g_pcap, -1, pcap_callback, (u_char *)rx);
     if (rc == -1) {

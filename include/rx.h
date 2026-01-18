@@ -10,6 +10,7 @@
 
 typedef struct {
     const char *iface;
+    const char *pcap_file;
 
     pktbuf_pool_t *pool;
 

@@ -14,13 +14,18 @@ extern volatile sig_atomic_t g_stop;
 static void *worker_main(void *arg) {
     worker_t *w = (worker_t *)arg;
 
-    while (!g_stop) {
+    while (1) {
         pktbuf_t *b = (pktbuf_t *)ring_pop(w->rx_ring);
         if (!b) {
-            // Ring empty => avoid burning CPU while doing nothing.
-            struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000}; // 1ms
-            nanosleep(&ts, NULL);
-            continue;
+            if (g_stop) {
+                // Stop signal received + ring is empty.
+                break;
+            } else {
+                // Ring empty => avoid burning CPU while doing nothing.
+                struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000}; // 1ms
+                nanosleep(&ts, NULL);
+                continue;
+            }
         }
 
         w->pkts_in++;
