@@ -144,3 +144,8 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
 
     return 0;
 }
+
+uint32_t flow_hash(const flow_key_t *k) {
+    if (!k) return 0;
+    return k->src_ip ^ k->dst_ip ^ k->src_port ^ k->dst_port ^ k->protocol;
+}

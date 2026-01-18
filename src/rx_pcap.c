@@ -25,11 +25,6 @@ static uint32_t pick_ring_round_robin(uint32_t ring_count) {
     return idx;
 }
 
-// Symmetric 5-tuple hash: Hash(A->B) == Hash(B->A).
-static uint32_t flow_hash(const flow_key_t *k) {
-    return k->src_ip ^ k->dst_ip ^ k->src_port ^ k->dst_port ^ k->protocol;
-}
-
 static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_char *bytes) {
     rx_ctx_t *rx = (rx_ctx_t *)user;
 

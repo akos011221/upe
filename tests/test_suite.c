@@ -217,6 +217,35 @@ int test_icmp_packet_parser(void) {
     return 0;
 }
 
+// -- Flow Hash (Software RSS) related tests ---
+int test_flow_hash(void) {
+    // Flow A->B
+    flow_key_t k1 = {.src_ip = 0x0A800001,
+                     .dst_ip = 0x0A800002,
+                     .src_port = 12121,
+                     .dst_port = 443,
+                     .protocol = 6};
+    // Flow B->A
+    flow_key_t k2 = {.src_ip = 0x0A800002,
+                     .dst_ip = 0x0A800001,
+                     .src_port = 443,
+                     .dst_port = 12121,
+                     .protocol = 6};
+
+    // Test 1) Consistency
+    TEST_ASSERT(flow_hash(&k1) == flow_hash(&k1));
+
+    // Test 2) Symmetry
+    TEST_ASSERT(flow_hash(&k1) == flow_hash(&k2));
+
+    // Test 3) Different (change one bit => should be different hash)
+    flow_key_t k3 = k1;
+    k3.src_ip = 0x0A800003;
+    TEST_ASSERT(flow_hash(&k1) != flow_hash(&k3));
+
+    return 0;
+}
+
 // -- Packet Buffer Pool related tests ---
 int test_pktbuf_pool(void) {
     pktbuf_pool_t pool;
@@ -253,6 +282,7 @@ int main(void) {
     RUN_TEST(test_rule_priority);
     RUN_TEST(test_tcp_packet_parser);
     RUN_TEST(test_icmp_packet_parser);
+    RUN_TEST(test_flow_hash);
     RUN_TEST(test_pktbuf_pool);
     return 0;
 }
