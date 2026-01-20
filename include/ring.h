@@ -19,12 +19,16 @@ typedef struct {
 int ring_init(spsc_ring_t *r, size_t capacity);
 void ring_destroy(spsc_ring_t *r);
 
-// Producer: Push a pointer into ring.
-// Returns false if ring is full.
+/*
+    Producer: Push a pointer into ring.
+        Returns false if ring is full.
+*/
 bool ring_push(spsc_ring_t *r, void *ptr);
 
-// Consumer: Pop a pointer from ring.
-// Returns NULL if ring is empty.
+/*
+    Consumer: Pop a pointer from ring.
+        Returns NULL if ring is empty.
+*/
 void *ring_pop(spsc_ring_t *r);
 
 #endif

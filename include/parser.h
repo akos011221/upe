@@ -75,11 +75,11 @@ typedef struct {
 
 /*
     Parses a packet and builds a flow key.
-    Returns 0 if successful, -1 if not.
+        Returns 0 if successful, -1 if not.
 */
 int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out);
 
-// Calculate symmetric 5-tuple hash for Software RSS.
+/* Calculate symmetric 5-tuple hash for Software RSS. */
 uint32_t flow_hash(const flow_key_t *k);
 
 #endif

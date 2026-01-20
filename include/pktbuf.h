@@ -22,11 +22,13 @@ typedef struct {
 int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity);
 void pktbuf_pool_destroy(pktbuf_pool_t *p);
 
-// Get a buffer from the pool.
-// Returns NULL if no buffers are available.
+/*
+    Get a buffer from the pool.
+    Returns NULL if no buffers are available.
+*/
 pktbuf_t *pktbuf_alloc(pktbuf_pool_t *p);
 
-// Return buffer to the pool.
+/* Return buffer to the pool. */
 void pktbuf_free(pktbuf_pool_t *p, pktbuf_t *buf);
 
 #endif

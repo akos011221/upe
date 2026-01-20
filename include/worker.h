@@ -36,10 +36,10 @@ typedef struct {
     pthread_t thread;
 } worker_t;
 
-// Initialize worker, allocate stats memory for it.
+/* Initialize worker, allocate stats memory for it. */
 int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
                 const rule_table_t *rt, const tx_ctx_t *tx);
-// Free worker memory.
+/* Free worker memory. */
 void worker_destroy(worker_t *w);
 
 int worker_start(worker_t *w);
