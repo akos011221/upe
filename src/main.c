@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
     log_set_level(verbosity_to_level(cfg.verbose));
     install_signal_handlers();
 
-    const int WORKERS_NUM = 2;
+    const uint16_t WORKERS_NUM = 2;
     const size_t RING_CAPACITY = 1024;
     const size_t POOL_CAPACITY = 4096;
 
