@@ -135,11 +135,12 @@ static void install_demo_flows(rule_table_t *rt) {
     rule_t r2;
     memset(&r2, 0, sizeof(r2));
     r2.priority = 100;
+    r2.ip_ver = 4;
     r2.protocol = 6;
-    r2.src_ip = (10u << 24) | (0u << 16) | (0u << 8) | 0u; // 10.0.0.0 in host order
+    r2.src_ip.v4 = (10u << 24) | (0u << 16) | (0u << 8) | 0u; // 10.0.0.0 in host order
     uint32_t src_mask;
     ipv4_mask_from_prefix(8, &src_mask);
-    r2.src_mask = src_mask;
+    r2.src_mask.v4 = src_mask;
     r2.action.type = ACT_FWD;
     r2.action.out_ifindex = 3;
     rule_table_add(rt, &r2);

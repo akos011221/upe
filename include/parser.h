@@ -36,6 +36,15 @@ struct ipv4_hdr {
     uint32_t dst_ip;
 } __attribute__((packed));
 
+struct ipv6_hdr {
+    uint32_t vtf;
+    uint16_t payload_length;
+    uint8_t next_header;
+    uint8_t hop_limit;
+    uint8_t src_addr[16];
+    uint8_t dst_addr[16];
+} __attribute__((packed));
+
 struct udp_hdr {
     uint16_t src_port;
     uint16_t dst_port;
@@ -65,9 +74,15 @@ struct icmp_hdr {
 
 /* ------------------------------------------ */
 
+typedef union {
+    uint32_t v4;
+    uint8_t v6[16];
+} ip_addr_t;
+
 typedef struct {
-    uint32_t src_ip;
-    uint32_t dst_ip;
+    uint8_t ip_ver; // 4 or 6
+    ip_addr_t src_ip;
+    ip_addr_t dst_ip;
     uint16_t src_port;
     uint16_t dst_port;
     uint8_t protocol;

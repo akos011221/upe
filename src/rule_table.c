@@ -43,12 +43,18 @@ static inline bool match_ip(uint32_t pkt_ip, uint32_t rule_ip, uint32_t mask) {
     Cheap checks must come first, more expensive ones later for performance.
 */
 static inline bool match_rule(const rule_t *r, const flow_key_t *k) {
+    if (r->ip_ver != 0 && r->ip_ver != k->ip_ver) return false;
     if (r->protocol && r->protocol != k->protocol) return false;
     if (r->src_port && r->src_port != k->src_port) return false;
     if (r->dst_port && r->dst_port != k->dst_port) return false;
-    if (!(match_ip(k->src_ip, r->src_ip, r->src_mask) &&
-          match_ip(k->dst_ip, r->dst_ip, r->dst_mask)))
-        return false;
+
+    if (k->ip_ver == 4) {
+        if (!match_ip(k->src_ip.v4, r->src_ip.v4, r->src_mask.v4)) return false;
+        if (!match_ip(k->dst_ip.v4, r->dst_ip.v4, r->dst_mask.v4)) return false;
+    } else if (k->ip_ver == 6) {
+        // TODO
+    }
+
     return true;
 }
 
@@ -100,8 +106,8 @@ int rule_table_add(rule_table_t *t, const rule_t *r_in) {
     r.rule_id = (uint32_t)t->count;
 
     /* If mask=0 (wildcard), src_ip, dst_ip don't matter */
-    if (r.src_mask == 0) r.src_ip = 0;
-    if (r.dst_mask == 0) r.dst_ip = 0;
+    if (r.ip_ver == 4 && r.src_mask.v4 == 0) r.src_ip.v4 = 0;
+    if (r.ip_ver == 4 && r.dst_mask.v4 == 0) r.dst_ip.v4 = 0;
 
     t->rules[t->count++] = r;
 

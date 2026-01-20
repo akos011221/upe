@@ -121,11 +121,7 @@ int test_tcp_packet_parser(void) {
     TEST_ASSERT(parse_flow_key(pkt, 12, &k) == -1);
 
     // Build a valid Ethernet header
-    struct eth_hdr {
-        uint8_t dst[6];
-        uint8_t src[6];
-        uint16_t ethertype;
-    } __attribute__((packed)) *eth = (struct eth_hdr *)pkt;
+    struct eth_hdr *eth = (struct eth_hdr *)pkt;
     eth->ethertype = htons(0x0800); // IPv4
 
     // Test 2) Packet too short for IP header
@@ -133,20 +129,9 @@ int test_tcp_packet_parser(void) {
     TEST_ASSERT(parse_flow_key(pkt, 17, &k) == -1);
 
     // Build a valid IP header
-    struct ipv4_hdr {
-        uint8_t ver_ihl;
-        uint8_t tos;
-        uint16_t len;
-        uint16_t id;
-        uint16_t frag;
-        uint8_t ttl;
-        uint8_t proto;
-        uint16_t csum;
-        uint32_t src;
-        uint32_t dst;
-    } __attribute__((packed)) *ip = (struct ipv4_hdr *)(pkt + 14);
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)(pkt + 14);
     ip->ver_ihl = 0x45; // Ver 4, IHL 5
-    ip->proto = 6;      // TCP
+    ip->protocol = 6;   // TCP
 
     // Test 3) Packet too short for TCP header
     // Eth (14) + IP (20) + 3 byte
@@ -169,37 +154,16 @@ int test_icmp_packet_parser(void) {
     flow_key_t k;
 
     // Ethernet
-    struct eth_hdr {
-        uint8_t dst[6];
-        uint8_t src[6];
-        uint16_t ethertype;
-    } __attribute__((packed)) *eth = (struct eth_hdr *)pkt;
+    struct eth_hdr *eth = (struct eth_hdr *)pkt;
     eth->ethertype = htons(0x0800);
 
     // IP
-    struct ipv4_hdr {
-        uint8_t ver_ihl;
-        uint8_t tos;
-        uint16_t len;
-        uint16_t id;
-        uint16_t frag;
-        uint8_t ttl;
-        uint8_t proto;
-        uint16_t csum;
-        uint32_t src;
-        uint32_t dst;
-    } __attribute__((packed)) *ip = (struct ipv4_hdr *)(pkt + 14);
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)(pkt + 14);
     ip->ver_ihl = 0x45;
-    ip->proto = 1;
+    ip->protocol = 1;
 
     // ICMP
-    struct icmp_hdr {
-        uint8_t type;
-        uint8_t code;
-        uint16_t csum;
-        uint16_t id;
-        uint16_t seq;
-    } __attribute((packed)) *icmp = (struct icmp_hdr *)(pkt + 34);
+    struct icmp_hdr *icmp = (struct icmp_hdr *)(pkt + 34);
     icmp->type = 8;
     icmp->code = 0;
     icmp->id = htons(0x1234);
@@ -217,17 +181,63 @@ int test_icmp_packet_parser(void) {
     return 0;
 }
 
+// --- IPv6 Packet parser related tests ---
+int test_ipv6_packet_parser(void) {
+    uint8_t pkt[128];
+    memset(pkt, 0, sizeof(pkt));
+    flow_key_t k;
+
+    // Ethernet
+    struct eth_hdr *eth = (struct eth_hdr *)pkt;
+    eth->ethertype = htons(0x86DD);
+
+    // IPv6 (40 bytes)
+    struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(pkt + 14);
+    // Version 6 (0x60), Traffic Class 0, Flow Label 0
+    ip6->vtf = htonl(0x60000000);
+    ip6->payload_length = htons(20); // Size of TCP header
+    ip6->next_header = 6;            // TCP
+    ip6->hop_limit = 64;
+
+    // Src: 2001:db8::1
+    uint8_t src[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    memcpy(ip6->src_addr, src, 16);
+
+    // Dst: 2001:db8::2
+    uint8_t dst[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
+    memcpy(ip6->dst_addr, dst, 16);
+
+    // TCP
+    struct tcp_hdr *tcp = (struct tcp_hdr *)(pkt + 14 + 40);
+    tcp->src_port = htons(46500);
+    tcp->dst_port = htons(443);
+    tcp->data_offset = 0x50; // 5 words (20 bytes)
+
+    // Test valid IPv6 TCP
+    // Eth(14) + IPv6 (40) + TCP(20) = 74 bytes
+    TEST_ASSERT(parse_flow_key(pkt, 74, &k) == 0);
+    TEST_ASSERT(k.ip_ver == 6);
+    TEST_ASSERT(k.protocol == 6);
+    TEST_ASSERT(memcmp(k.src_ip.v6, src, 16) == 0);
+    TEST_ASSERT(memcmp(k.dst_ip.v6, dst, 16) == 0);
+
+    return 0;
+}
+
 // -- Flow Hash (Software RSS) related tests ---
 int test_flow_hash(void) {
+    /* -- IPv4 Tests -- */
     // Flow A->B
-    flow_key_t k1 = {.src_ip = 0x0A800001,
-                     .dst_ip = 0x0A800002,
+    flow_key_t k1 = {.ip_ver = 4,
+                     .src_ip.v4 = 0x0A800001,
+                     .dst_ip.v4 = 0x0A800002,
                      .src_port = 12121,
                      .dst_port = 443,
                      .protocol = 6};
     // Flow B->A
-    flow_key_t k2 = {.src_ip = 0x0A800002,
-                     .dst_ip = 0x0A800001,
+    flow_key_t k2 = {.ip_ver = 4,
+                     .src_ip.v4 = 0x0A800002,
+                     .dst_ip.v4 = 0x0A800001,
                      .src_port = 443,
                      .dst_port = 12121,
                      .protocol = 6};
@@ -240,8 +250,33 @@ int test_flow_hash(void) {
 
     // Test 3) Different (change one bit => should be different hash)
     flow_key_t k3 = k1;
-    k3.src_ip = 0x0A800003;
+    k3.src_ip.v4 = 0x0A800003;
     TEST_ASSERT(flow_hash(&k1) != flow_hash(&k3));
+
+    /* -- IPv6 Tests -- */
+    flow_key_t v6_1;
+    memset(&v6_1, 0, sizeof(v6_1));
+    v6_1.ip_ver = 6;
+    v6_1.protocol = 6;
+    v6_1.src_port = 12121;
+    v6_1.dst_port = 443;
+    // 2001:db8::1
+    uint8_t addr1[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    // 2001:db8::2
+    uint8_t addr2[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
+
+    memcpy(v6_1.src_ip.v6, addr1, 16);
+    memcpy(v6_1.dst_ip.v6, addr2, 16);
+
+    flow_key_t v6_2 = v6_1;
+    // For the second key: swap IPs and ports (reverse flow)
+    memcpy(v6_2.src_ip.v6, addr2, 16);
+    memcpy(v6_2.dst_ip.v6, addr1, 16);
+    v6_2.src_port = 443;
+    v6_2.dst_port = 12121;
+
+    // Test 4) IPv6 Symmetry
+    TEST_ASSERT(flow_hash(&v6_1) == flow_hash(&v6_2));
 
     return 0;
 }
@@ -282,6 +317,7 @@ int main(void) {
     RUN_TEST(test_rule_priority);
     RUN_TEST(test_tcp_packet_parser);
     RUN_TEST(test_icmp_packet_parser);
+    RUN_TEST(test_ipv6_packet_parser);
     RUN_TEST(test_flow_hash);
     RUN_TEST(test_pktbuf_pool);
     return 0;

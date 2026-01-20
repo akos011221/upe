@@ -19,10 +19,11 @@ typedef struct {
 typedef struct {
     uint32_t priority; // lower is higher priority
 
-    uint32_t src_ip;
-    uint32_t src_mask;
-    uint32_t dst_ip;
-    uint32_t dst_mask;
+    uint8_t ip_ver;
+    ip_addr_t src_ip;
+    ip_addr_t src_mask;
+    ip_addr_t dst_ip;
+    ip_addr_t dst_mask;
 
     uint16_t src_port;
     uint16_t dst_port;
