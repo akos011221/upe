@@ -1,7 +1,19 @@
 # UPE Architecture Guide
 
+## High-Level Overview
+
+The system follows a **Pipeline Architecture**:
+
+```mermaid
+graph LR
+    NIC[Network Interface] --> RX[RX Thread]
+    RX -->|SPSC Ring| Worker1[Worker Thread 1]
+    RX -->|SPSC Ring| Worker2[Worker Thread 2]
+    Worker1 -->|AF_PACKET| TX[TX Interface]
+    Worker2 -->|AF_PACKET| TX
+```
+
 ## 1. Memory Management
-**File:** `src/pktbuf.c`
 
 ### Design
 The goal is to minimize the lock contention when multiple threads are used.
@@ -14,18 +26,18 @@ The goal is to minimize the lock contention when multiple threads are used.
 ### API
 *   **`pktbuf_pool_init`**: Pre-allocates the entire heap of packets. This ensures the engine never fails due to OOM (Out Of Memory) during operation.
 *   **`pktbuf_alloc` / `pktbuf_free`**: These are the synchronization points.
-    *   *Current Limitation:* As core count increases, this lock becomes the bottleneck. This is the primary target for optimization in future modules (moving to per-core caches).
+    *   *Optimization:* Thread-local caching is implemented. The global lock is only acquired during burst transfers (when local cache is empty/full).
 
 ---
 
 ## 2. Ingress & Handoff
-**File:** `src/ring.c`, `src/rx.h`
 
 ### Design
 To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer / Single-Consumer (SPSC) Rings**.
 
 *   **Topology:** 1 RX Thread feeds $N$ Workers via $N$ distinct rings.
 *   **Data Transfer:** Only the 8-byte pointer (`pktbuf_t*`) is passed through the ring. The packet data stays in the buffer allocated from the pool.
+*   **Software RSS:** The RX thread calculates a symmetric 5-tuple hash (SrcIP, DstIP, SrcPort, DstPort,, Proto) to select the destination ring. This ensures bidirectional flows land on the same worker.
 
 ### API
 *   **`ring_push` / `ring_pop`**:
@@ -36,8 +48,24 @@ To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer
 
 ---
 
-## 3. Workers
-**File:** `src/worker.c`, `include/worker.h`
+## 3. Parser
+
+### Design
+The parser extracts flow information (5-tuple) from raw packet data. It is used by both the RX thread (for RSS hashing) and Workers (for Rule matching).
+
+*   **Zero-Copy:** Reads headers directly from the buffer.
+*   **Dual-Stack:** Support IPv4 and IPv6.
+
+### IPv6 Implementation Details
+*   **Storage:** IPv6 addresses are stored as `uint8_t[16]` inside a `union`.
+*   **Parsing (Memcpy vs Casting):** We use `memcpy` to extract IPv6 addresses instead of casting the pointer to `uint64_t*` or `uint128_t*`.
+    *   **Alignment Safety:** The Ethernet header is 14 bytes. The v6 header starts at offset 14. Since 14 is not divisible by 4 or 8, accessing it as a multi-byte integer causes **Unaligned Memory Access**. On some architectures, this triggers a CPU exception (Bus Error). `memcpy` handles unaligned data safely.
+    *   **Endian reasons:** A byte array (`uint8_t[]`) represents the data exactly as it  appears on the wire. This comes handy while debugging compared to integers which are swapped by Little Endian CPUs.
+    *   **Hashing:** To fit 128-bit address into a 32-bit hash (required for the Ring ID  modulo operation), we pack the address. We view the 16 bytes as four 32-bit integers and XOR them together. This preserves entropy while reducing size.
+
+---
+
+## 4. Workers
 
 ### Design
 Workers are  dataplane. They are designed to be as independent as possible, though they currently share the global memory pool.
@@ -61,8 +89,7 @@ Workers are  dataplane. They are designed to be as independent as possible, thou
 
 ---
 
-## 4. Policy
-**File:** `src/rule_table.c` (implied context), `src/worker.c`
+## 5. Policy
 
 ### Design
 The classification engine is a linear list of rules sorted by priority.
@@ -73,8 +100,7 @@ The classification engine is a linear list of rules sorted by priority.
 
 ---
 
-## 5. Observability
-**File:** `src/main.c` (`stats_thread_func`)
+## 6. Observability
 
 ### Design
 To view the system state without slowing it down, we use a separate thread.
