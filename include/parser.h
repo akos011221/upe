@@ -97,4 +97,7 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out);
 /* Calculate symmetric 5-tuple hash for Software RSS. */
 uint32_t flow_hash(const flow_key_t *k);
 
+/* Calculate IPv4 Header Checksum */
+uint16_t ipv4_checksum(const void *data, size_t len);
+
 #endif

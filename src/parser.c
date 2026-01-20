@@ -133,3 +133,37 @@ uint32_t flow_hash(const flow_key_t *k) {
     }
     return h;
 }
+
+uint16_t ipv4_checksum(const void *data, size_t len) {
+    const uint16_t *ptr = (const uint16_t *)data;
+
+    // Use a 32-bit accumulator as a temporary workspace
+    // so we don't lose any carry bits while summing 16-bit words.
+    uint32_t sum = 0;
+
+    // "> 1", because we need 2 bytes to read uint16_t.
+    while (len > 1) {
+        sum += *ptr++;
+        len -= 2;
+    }
+
+    // Add left-over byte, if any (odd length).
+    if (len > 0) {
+        sum += *(const uint8_t *)ptr;
+    }
+
+    /*
+        Fold 32-bit sum into 16 bits by adding back any carry.
+        Adding the carry may itself create a new carry, so
+        repeat until no bits remain above 16.
+
+        (sum & 0xFFFF) gets the lower 16 bits,
+        (sum >> 16) gets the carry by shifting the upper bits down.
+    */
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // One's complement: flip all bits (0->1, 1->0).
+    return (uint16_t)~sum;
+}

@@ -66,6 +66,25 @@ static void *worker_main(void *arg) {
         }
 
         if (r->action.type == ACT_FWD) {
+            /*
+                [L3 Processing]
+                For IPv4, decrement TTL and update checksum.
+                Otherwise: transparent bridge.
+            */
+            if (key.ip_ver == 4) {
+                struct ipv4_hdr *ip = (struct ipv4_hdr *)(b->data + sizeof(struct eth_hdr));
+
+                if (ip->ttl <= 1) {
+                    w->pkts_dropped++;
+                    pktbuf_free(w->pool, b);
+                    continue;
+                }
+
+                ip->ttl--;
+                ip->checksum = 0; // Must be 0 before calculation.
+                ip->checksum = ipv4_checksum(ip, (ip->ver_ihl & 0x0F) * 4);
+            }
+
             // Forward out on TX interface the raw L2 frame (as captured).
             if (tx_send(w->tx, b->data, b->len) != 0) {
                 w->pkts_forwarded++;

@@ -311,6 +311,39 @@ int test_pktbuf_pool(void) {
     return 0;
 }
 
+// --- IPv4 Checksum & TTL related tests ---
+int test_ipv4_checksum_and_ttl(void) {
+    // Build a simple IPv4 header
+    uint8_t raw_ip[] = {0x45, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00,
+                        0x40, 0x06, 0x00, 0x00, // TTL=64, Proto=6, Csum=0
+                        0x0A, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x02};
+
+    struct ipv4_hdr *ip = (struct ipv4_hdr *)raw_ip;
+
+    // Calculate checksum for the first time
+    uint16_t csum = ipv4_checksum(ip, sizeof(raw_ip));
+
+    // Store it in the header
+    ip->checksum = csum;
+
+    // Verify checksum computation (header + checksum should sum to 0xFFFF)
+    TEST_ASSERT(ipv4_checksum(ip, sizeof(raw_ip)) == 0);
+
+    // Decrement TTL as a router
+    ip->ttl--; // 64 -> 63
+
+    // Recalculate checksum
+    ip->checksum = 0; // Zero out before calculation
+    uint16_t new_csum = ipv4_checksum(ip, sizeof(raw_ip));
+    ip->checksum = new_csum;
+
+    TEST_ASSERT(ip->ttl == 63);
+    TEST_ASSERT(ipv4_checksum(ip, sizeof(raw_ip)) == 0);
+    TEST_ASSERT(csum != new_csum);
+
+    return 0;
+}
+
 int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
@@ -318,6 +351,7 @@ int main(void) {
     RUN_TEST(test_tcp_packet_parser);
     RUN_TEST(test_icmp_packet_parser);
     RUN_TEST(test_ipv6_packet_parser);
+    RUN_TEST(test_ipv4_checksum_and_ttl);
     RUN_TEST(test_flow_hash);
     RUN_TEST(test_pktbuf_pool);
     return 0;
