@@ -1,11 +1,13 @@
 #define _POSIX_C_SOURCE 200809L
 #include "worker.h"
+#include "arp_table.h"
 #include "log.h"
 #include "parser.h"
 
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 // Global stop flag from main; required for all workers.
@@ -68,9 +70,12 @@ static void *worker_main(void *arg) {
         if (r->action.type == ACT_FWD) {
             /*
                 [L3 Processing]
-                For IPv4, decrement TTL and update checksum.
-                Otherwise: transparent bridge.
+                    For IPv4, decrement TTL and update checksum.
+                    Then do ARP lookup and rewrite the DstMac.
+                        Otherwise: transparent bridge.
             */
+            struct eth_hdr *eth = (struct eth_hdr *)b->data;
+
             if (key.ip_ver == 4) {
                 struct ipv4_hdr *ip = (struct ipv4_hdr *)(b->data + sizeof(struct eth_hdr));
 
@@ -83,6 +88,11 @@ static void *worker_main(void *arg) {
                 ip->ttl--;
                 ip->checksum = 0; // Must be 0 before calculation.
                 ip->checksum = ipv4_checksum(ip, (ip->ver_ihl & 0x0F) * 4);
+
+                uint8_t dst_mac[6];
+                if (arp_get_mac(key.dst_ip.v4, dst_mac)) {
+                    memcpy(eth->dst, dst_mac, 6);
+                }
             }
 
             // Forward out on TX interface the raw L2 frame (as captured).

@@ -23,6 +23,18 @@ struct eth_hdr {
     uint16_t ethertype;
 } __attribute__((packed));
 
+struct arp_hdr {
+    uint16_t htype; // Hardware type
+    uint16_t ptype; // Protocol type
+    uint8_t hlen;   // Hardware address length (6)
+    uint8_t plen;   // Protocol address length (4)
+    uint16_t op;    // Operation (1=Request, 2=Reply)
+    uint8_t sha[6]; // Sender Hardware Address
+    uint32_t spa;   // Sender Protocol Address
+    uint8_t tha[6]; // Target Hardware Address
+    uint32_t tpa;   // Target Protocol Address
+} __attribute__((packed));
+
 struct ipv4_hdr {
     uint8_t ver_ihl;
     uint8_t tos;
