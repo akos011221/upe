@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
 #include "log.h"
 #include "tx.h"
 
@@ -10,6 +11,7 @@
 #include <net/ethernet.h>
 #include <net/if.h>
 #include <netpacket/packet.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 
 int tx_init(tx_ctx_t *tx, const char *out_iface) {
@@ -29,8 +31,19 @@ int tx_init(tx_ctx_t *tx, const char *out_iface) {
         return -1;
     }
 
+    /* Get MAC address of the interface */
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, out_iface, IFNAMSIZ - 1);
+    if (ioctl(fd, SIOCGIFHWADDR, &ifr) < 0) {
+        log_msg(LOG_ERROR, "ioctl(SIOCGIFHWADDR) failed: %s", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
     tx->sock_fd = fd;
     tx->ifindex = ifindex;
+    memcpy(tx->eth_addr, ifr.ifr_hwaddr.sa_data, 6);
     return 0;
 }
 
