@@ -86,6 +86,11 @@ int rx_start(rx_ctx_t *rx) {
             return -1;
         }
         log_msg(LOG_INFO, "RX started on %s (libpcap)", rx->iface);
+
+        // Loopback prevention to avoid reading outgoing packets
+        if (pcap_setdirection(g_pcap, PCAP_D_IN) < 0) {
+            log_msg(LOG_WARN, "pcap_setdirection failed: %s", pcap_geterr(g_pcap));
+        }
     }
 
     int rc = pcap_loop(g_pcap, -1, pcap_callback, (u_char *)rx);

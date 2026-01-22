@@ -71,7 +71,7 @@ static void *worker_main(void *arg) {
             /*
                 [L3 Processing]
                     For IPv4, decrement TTL and update checksum.
-                    Then do ARP lookup and rewrite the DstMac.
+                    Then do ARP lookup and rewrite Src, Dst MAC
                         Otherwise: transparent bridge.
             */
             struct eth_hdr *eth = (struct eth_hdr *)b->data;
@@ -92,6 +92,7 @@ static void *worker_main(void *arg) {
                 uint8_t dst_mac[6];
                 if (arp_get_mac(key.dst_ip.v4, dst_mac)) {
                     memcpy(eth->dst, dst_mac, 6);
+                    memcpy(eth->src, w->tx->eth_addr, 6);
                 }
             }
 
