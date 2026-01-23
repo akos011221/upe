@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "arp_table.h"
 #include "log.h"
 #include "pktbuf.h"
 #include "ring.h"
@@ -246,10 +247,17 @@ int main(int argc, char **argv) {
     rule_table_init(&rt, 1024);
     install_demo_flows(&rt);
 
-    // V. Start workers
+    // V. Init ARP Table
+    arp_table_t arpt;
+    if (arp_table_init(&arpt, 1024) != 0) {
+        log_msg(LOG_ERROR, "arp_table_init failed");
+        return 1;
+    }
+
+    // VI. Start workers
     worker_t *workers = calloc((size_t)WORKERS_NUM, sizeof(worker_t));
     for (int i = 0; i < WORKERS_NUM; i++) {
-        worker_init(&workers[i], i, &rings[i], &pool, &rt, &tx);
+        worker_init(&workers[i], i, &rings[i], &pool, &rt, &tx, &arpt);
 
         if (worker_start(&workers[i]) != 0) {
             log_msg(LOG_ERROR, "worker_start(%d) failed", i);
@@ -257,7 +265,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    // VI. Start RX (blocking)
+    // VII. Start RX (blocking)
     rx_ctx_t rx;
     rx.iface = cfg.iface;
     rx.pcap_file = cfg.pcap_file;
@@ -272,7 +280,7 @@ int main(int argc, char **argv) {
 
     rx_start(&rx);
 
-    // VII. RX returned => stop workers and join
+    // VIII. RX returned => stop workers and join
     g_stop = 1;
 
     // Join stats thread
@@ -282,7 +290,7 @@ int main(int argc, char **argv) {
         worker_join(&workers[i]);
     }
 
-    // VIII. Cleanup
+    // IX. Cleanup
     tx_close(&tx);
     for (int i = 0; i < WORKERS_NUM; i++) {
         ring_destroy(&rings[i]);
@@ -291,6 +299,7 @@ int main(int argc, char **argv) {
 
     pktbuf_pool_destroy(&pool);
     rule_table_destroy(&rt);
+    arp_table_destroy(&arpt);
     for (int i = 0; i < WORKERS_NUM; i++) {
         worker_destroy(&workers[i]);
     }

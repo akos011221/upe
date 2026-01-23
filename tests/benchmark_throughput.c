@@ -19,7 +19,7 @@
         5) Frees the buffer back to the pool
 */
 
-#define _POSIX_C_SOURCE 199309L
+#include "arp_table.h"
 #include "pktbuf.h"
 #include "ring.h"
 #include "rule_table.h"
@@ -96,10 +96,13 @@ int main(void) {
     rule_t r = {.priority = 10, .protocol = 6, .action = {.type = ACT_DROP}};
     rule_table_add(&rt, &r);
 
+    arp_table_t arpt;
+    arp_table_init(&arpt, 1024);
+
     // 2) Start a worker
     worker_t w;
     // NULL for TX, as we're only dropping.
-    worker_init(&w, 0, &ring, &pool, &rt, NULL);
+    worker_init(&w, 0, &ring, &pool, &rt, NULL, &arpt);
     worker_start(&w);
 
     printf("Benchmarking for %d seconds...\n", TEST_DURATION_SEC);
