@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <arpa/inet.h>
 #include <assert.h>
 #include <inttypes.h>
@@ -5,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arp_table.h"
 #include "parser.h"
 #include "pktbuf.h"
 #include "ring.h"
@@ -344,6 +346,43 @@ int test_ipv4_checksum_and_ttl(void) {
     return 0;
 }
 
+// --- ARP Table related tests ---
+int test_arp_table(void) {
+    arp_table_t arpt;
+
+    // Test 1) Initialization
+    TEST_ASSERT(arp_table_init(&arpt, 16) == 0);
+
+    // Test 2) Update - learning new entry
+    // 10.128.0.1 -> aa:bb:11:22:33:44
+    uint32_t ip1 = 0x0A800001;
+    uint8_t mac1[6] = {0xaa, 0xbb, 0x11, 0x22, 0x33, 0x44};
+    arp_update(&arpt, ip1, mac1);
+
+    // Test 3) Lookup MAC - Success
+    uint8_t out[6];
+    bool found = arp_get_mac(&arpt, ip1, out);
+    TEST_ASSERT(found == true);
+    TEST_ASSERT(memcmp(out, mac1, 6) == 0);
+
+    // Test 4) Lookup MAC - Fail (Non-existent IP)
+    found = arp_get_mac(&arpt, 0x0AAA015C, out);
+    TEST_ASSERT(found == false);
+
+    // Test 5) Update existing entry
+    // 10.128.0.1 -> cc:cc:bb:bb:aa:aa
+    uint8_t mac2[6] = {0xcc, 0xcc, 0xbb, 0xbb, 0xaa, 0xaa};
+    arp_update(&arpt, ip1, mac2);
+
+    found = arp_get_mac(&arpt, ip1, out);
+    TEST_ASSERT(found == true);
+    TEST_ASSERT(memcmp(out, mac2, 6) == 0);
+
+    // Test 6) Cleanup
+    arp_table_destroy(&arpt);
+    return 0;
+}
+
 int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
@@ -354,5 +393,6 @@ int main(void) {
     RUN_TEST(test_ipv4_checksum_and_ttl);
     RUN_TEST(test_flow_hash);
     RUN_TEST(test_pktbuf_pool);
+    RUN_TEST(test_arp_table);
     return 0;
 }

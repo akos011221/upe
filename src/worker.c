@@ -4,6 +4,7 @@
 #include "log.h"
 #include "parser.h"
 
+#include <arpa/inet.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -34,6 +35,26 @@ static void *worker_main(void *arg) {
 
         // Debug: Visualize the raw packet data
         log_hexdump(LOG_DEBUG, b->data, b->len);
+
+        // Check for ARP packets
+        struct eth_hdr *eth = (struct eth_hdr *)b->data;
+        if (ntohs(eth->ethertype) == 0x0806) {
+            if (b->len >= sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
+                struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
+
+                // Hardware Type 1 (Ethernet), Protocol 0x0800 (IPv4), HW Len 6, Proto Len 4
+                if (ntohs(arp->htype) == 1 && ntohs(arp->ptype) == 0x0800 && arp->hlen == 6 &&
+                    arp->plen == 4) {
+                    uint32_t spa = ntohl(arp->spa); // Sender Protocol Address (IP)
+                    arp_update(w->arpt, spa, arp->sha);
+                    log_msg(LOG_DEBUG, "Learned ARP: %08X -> %02X:%02X:%02X:%02X:%02X:%02X", spa,
+                            arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4],
+                            arp->sha[5]);
+                }
+            }
+            pktbuf_free(w->pool, b);
+            continue;
+        }
 
         // Parse the flow
         flow_key_t key;
@@ -74,8 +95,6 @@ static void *worker_main(void *arg) {
                     Then do ARP lookup and rewrite Src, Dst MAC
                         Otherwise: transparent bridge.
             */
-            struct eth_hdr *eth = (struct eth_hdr *)b->data;
-
             if (key.ip_ver == 4) {
                 struct ipv4_hdr *ip = (struct ipv4_hdr *)(b->data + sizeof(struct eth_hdr));
 
@@ -90,7 +109,24 @@ static void *worker_main(void *arg) {
                 ip->checksum = ipv4_checksum(ip, (ip->ver_ihl & 0x0F) * 4);
 
                 uint8_t dst_mac[6];
-                if (arp_get_mac(key.dst_ip.v4, dst_mac)) {
+                bool found = false;
+
+                /*
+                    First, check the local cache (1 element) to avoid lock contention.
+                        If packet is going to the same DstIP as the previous one, re-use the MAC.
+                            This way we don't have to use the lock.
+                */
+                if (w->last_arp_ip != 0 && key.dst_ip.v4 == w->last_arp_ip) {
+                    memcpy(dst_mac, w->last_arp_mac, 6);
+                    found = true;
+                } else if (arp_get_mac(w->arpt, key.dst_ip.v4, dst_mac)) {
+                    // If not in the cache, must do the look up & also update the worker cache.
+                    w->last_arp_ip = key.dst_ip.v4;
+                    memcpy(w->last_arp_mac, dst_mac, 6);
+                    found = true;
+                }
+
+                if (found) {
                     memcpy(eth->dst, dst_mac, 6);
                     memcpy(eth->src, w->tx->eth_addr, 6);
                 }
@@ -117,7 +153,7 @@ static void *worker_main(void *arg) {
 }
 
 int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
-                const rule_table_t *rt, const tx_ctx_t *tx) {
+                const rule_table_t *rt, const tx_ctx_t *tx, arp_table_t *arpt) {
     if (!w || !rt) return -1;
 
     w->worker_id = worker_id;
@@ -125,6 +161,7 @@ int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t 
     w->pool = pool;
     w->rt = rt;
     w->tx = tx;
+    w->arpt = arpt;
 
     // Rule table capacity determines the size of the stats array.
     w->rule_stats = (rule_stat_t *)calloc(rt->capacity, sizeof(rule_stat_t));

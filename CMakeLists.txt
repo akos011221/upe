@@ -56,6 +56,7 @@ target_include_directories(test_suite PRIVATE include)
 # Simulating ARM/RISC-V crashes on x86 with Alignment Sanitizer
 target_compile_options(test_suite PRIVATE -g -fsanitize=alignment)
 target_link_options(test_suite PRIVATE -fsanitize=alignment)
+target_link_libraries(test_suite pthread)
 
 add_test(NAME UPE_Unit_Tests COMMAND test_suite)
 
