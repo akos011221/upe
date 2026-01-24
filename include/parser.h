@@ -35,6 +35,14 @@ struct arp_hdr {
     uint32_t tpa;   // Target Protocol Address
 } __attribute__((packed));
 
+struct ndp_na_hdr {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint32_t flags;
+    uint8_t target[16];
+} __attribute__((packed));
+
 struct ipv4_hdr {
     uint8_t ver_ihl;
     uint8_t tos;
@@ -82,6 +90,12 @@ struct icmp_hdr {
     uint16_t checksum;
     uint16_t id;
     uint16_t seq;
+} __attribute__((packed));
+
+struct icmp6_hdr {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
 } __attribute__((packed));
 
 /* ------------------------------------------ */

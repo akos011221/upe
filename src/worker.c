@@ -2,6 +2,7 @@
 #include "worker.h"
 #include "arp_table.h"
 #include "log.h"
+#include "ndp_table.h"
 #include "parser.h"
 
 #include <arpa/inet.h>
@@ -36,8 +37,9 @@ static void *worker_main(void *arg) {
         // Debug: Visualize the raw packet data
         log_hexdump(LOG_DEBUG, b->data, b->len);
 
-        // Check for ARP packets
         struct eth_hdr *eth = (struct eth_hdr *)b->data;
+
+        // Check for ARP packets
         if (ntohs(eth->ethertype) == 0x0806) {
             if (b->len >= sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
                 struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
@@ -52,8 +54,56 @@ static void *worker_main(void *arg) {
                             arp->sha[5]);
                 }
             }
+            /* Consume the packet */
             pktbuf_free(w->pool, b);
             continue;
+        }
+
+        // Check for IPv6 NDP packet (Neighbor Advertisement)
+        if (ntohs(eth->ethertype) == 0x86DD) {
+            if (b->len >=
+                sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) + sizeof(struct ndp_na_hdr)) {
+                struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
+
+                // Next Header 58: ICMPv6
+                if (ip6->next_header == 58) {
+                    struct ndp_na_hdr *ndp =
+                        (struct ndp_na_hdr *)(b->data + sizeof(struct eth_hdr) +
+                                              sizeof(struct ipv6_hdr));
+
+                    // Type 136: Neighbor Advertisement
+                    if (ndp->type == 136) {
+                        // Parsing Options will reveal target Link-Layer Address
+                        size_t offset = sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) +
+                                        sizeof(struct ndp_na_hdr);
+
+                        while (offset + 2 <= b->len) {
+                            uint8_t opt_type = b->data[offset];
+                            uint8_t opt_len = b->data[offset + 1] * 8; // Length: units of 8 octets
+
+                            if (opt_len == 0 || offset + opt_len > b->len)
+                                break; /* Invalid packet */
+
+                            if (opt_type == 2 &&
+                                opt_len >= 8) { // Type 2: Target Link-Layer Address
+                                uint8_t *mac = b->data + offset + 2;
+                                ndp_update(w->ndpt, ndp->target, mac);
+                                log_msg(LOG_DEBUG,
+                                        "Learned NDP: %02x%02x:%02x%02x... -> "
+                                        "%02x:%02x:%02x:%02x:%02x:%02x",
+                                        ndp->target[0], ndp->target[1], ndp->target[2],
+                                        ndp->target[3], mac[0], mac[1], mac[2], mac[3], mac[4],
+                                        mac[5]);
+                                break;
+                            }
+                            offset += opt_len;
+                        }
+                        /* Consume the packet */
+                        pktbuf_free(w->pool, b);
+                        continue;
+                    }
+                }
+            }
         }
 
         // Parse the flow
@@ -130,6 +180,33 @@ static void *worker_main(void *arg) {
                     memcpy(eth->dst, dst_mac, 6);
                     memcpy(eth->src, w->tx->eth_addr, 6);
                 }
+            } else if (key.ip_ver == 6) {
+                struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
+
+                if (ip6->hop_limit <= 1) {
+                    w->pkts_dropped++;
+                    pktbuf_free(w->pool, b);
+                    continue;
+                }
+
+                ip6->hop_limit--;
+
+                uint8_t dst_mac[6];
+                bool found = false;
+
+                if (memcmp(key.dst_ip.v6, w->last_ndp_ip, 16) == 0) {
+                    memcpy(dst_mac, w->last_ndp_mac, 6);
+                    found = true;
+                } else if (ndp_get_mac(w->ndpt, key.dst_ip.v6, dst_mac)) {
+                    memcpy(w->last_ndp_ip, key.dst_ip.v6, 16);
+                    memcpy(w->last_ndp_mac, dst_mac, 6);
+                    found = true;
+                }
+
+                if (found) {
+                    memcpy(eth->dst, dst_mac, 6);
+                    memcpy(eth->src, w->tx->eth_addr, 6);
+                }
             }
 
             // Forward out on TX interface the raw L2 frame (as captured).
@@ -153,7 +230,7 @@ static void *worker_main(void *arg) {
 }
 
 int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
-                const rule_table_t *rt, const tx_ctx_t *tx, arp_table_t *arpt) {
+                const rule_table_t *rt, const tx_ctx_t *tx, arp_table_t *arpt, ndp_table_t *ndpt) {
     if (!w || !rt) return -1;
 
     w->worker_id = worker_id;
@@ -162,6 +239,7 @@ int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t 
     w->rt = rt;
     w->tx = tx;
     w->arpt = arpt;
+    w->ndpt = ndpt;
 
     // Rule table capacity determines the size of the stats array.
     w->rule_stats = (rule_stat_t *)calloc(rt->capacity, sizeof(rule_stat_t));
