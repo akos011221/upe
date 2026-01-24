@@ -62,6 +62,7 @@ static void build_dummy_packet(pktbuf_t *b) {
     p += 14;
     memset(p, 0, 20);
     p[0] = 0x45; // Ver 4, IHL 5
+    p[8] = 32;   // TTL
     p[9] = 6;    // Protocol (TCP)
     // Src: 10.128.0.1
     p[12] = 10;
@@ -93,16 +94,24 @@ int main(void) {
     rule_table_t rt;
     rule_table_init(&rt, 1024);
 
-    rule_t r = {.priority = 10, .protocol = 6, .action = {.type = ACT_DROP}};
+    rule_t r = {.priority = 10, .protocol = 6, .action = {.type = ACT_FWD, .out_ifindex = 1}};
     rule_table_add(&rt, &r);
 
     arp_table_t arpt;
     arp_table_init(&arpt, 1024);
 
+    uint32_t dst_ip = (10U << 24) | (128U << 16) | (0U << 8) | 2U; // 10.128.0.2
+    uint8_t dst_mac[6] = {0xaa, 0x00, 0x00, 0x00, 0x00, 0xbb};
+    arp_update(&arpt, dst_ip, dst_mac);
+
+    tx_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    tx.eth_addr[5] = 0xbb;
+
     // 2) Start a worker
     worker_t w;
     // NULL for TX, as we're only dropping.
-    worker_init(&w, 0, &ring, &pool, &rt, NULL, &arpt);
+    worker_init(&w, 0, &ring, &pool, &rt, &tx, &arpt);
     worker_start(&w);
 
     printf("Benchmarking for %d seconds...\n", TEST_DURATION_SEC);
