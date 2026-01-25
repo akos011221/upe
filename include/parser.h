@@ -57,6 +57,14 @@ struct ipv6_hdr {
     uint8_t dst_addr[16];
 } __attribute__((packed));
 
+struct ndp_na_hdr {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint32_t flags;
+    uint8_t target[16];
+} __attribute__((packed));
+
 struct udp_hdr {
     uint16_t src_port;
     uint16_t dst_port;
@@ -82,6 +90,12 @@ struct icmp_hdr {
     uint16_t checksum;
     uint16_t id;
     uint16_t seq;
+} __attribute__((packed));
+
+struct icmp6_hdr {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
 } __attribute__((packed));
 
 /* ------------------------------------------ */
