@@ -71,8 +71,9 @@ static void *worker_main(void *arg) {
                         (struct ndp_na_hdr *)(b->data + sizeof(struct eth_hdr) +
                                               sizeof(struct ipv6_hdr));
 
-                    // Type 136: Neighbor Advertisement
-                    if (ndp->type == 136) {
+                    // Type 135: Neighbor Solicitation (Learn from Source LL Addr)
+                    // Type 136: Neighbor Advertisement (Learn from Target LL Addr)
+                    if (ndp->type == 135 || ndp->type == 136) {
                         // Parsing Options will reveal target Link-Layer Address
                         size_t offset = sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) +
                                         sizeof(struct ndp_na_hdr);
@@ -84,16 +85,23 @@ static void *worker_main(void *arg) {
                             if (opt_len == 0 || offset + opt_len > b->len)
                                 break; /* Invalid packet */
 
-                            if (opt_type == 2 &&
-                                opt_len >= 8) { // Type 2: Target Link-Layer Address
+                            // NS (135) -> Look for Type 1 (Source LL) -> Map IPv6 Src to MAC
+                            if (ndp->type == 135 && opt_type == 1 && opt_len >= 8) {
+                                uint8_t *mac = b->data + offset + 2;
+                                ndp_update(w->ndpt, ip6->src_addr, mac);
+                                log_msg(LOG_DEBUG,
+                                        "Learned NDP (NS): %02x:%02x:%02x:%02x:%02x:%02x", mac[0],
+                                        mac[1], mac[2], mac[3], mac[4], mac[5]);
+                                break;
+                            }
+
+                            // NA (136) -> Look for Type 2 (Target LL) -> Map IPv6 Dst to MAC
+                            if (ndp->type == 136 && opt_type == 2 && opt_len >= 8) {
                                 uint8_t *mac = b->data + offset + 2;
                                 ndp_update(w->ndpt, ndp->target, mac);
                                 log_msg(LOG_DEBUG,
-                                        "Learned NDP: %02x%02x:%02x%02x... -> "
-                                        "%02x:%02x:%02x:%02x:%02x:%02x",
-                                        ndp->target[0], ndp->target[1], ndp->target[2],
-                                        ndp->target[3], mac[0], mac[1], mac[2], mac[3], mac[4],
-                                        mac[5]);
+                                        "Learned NDP (NA): %02x:%02x:%02x:%02x:%02x:%02x", mac[0],
+                                        mac[1], mac[2], mac[3], mac[4], mac[5]);
                                 break;
                             }
                             offset += opt_len;
