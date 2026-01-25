@@ -7,7 +7,7 @@
 #define ARP_TIMEOUT_SEC 300
 
 int arp_table_init(arp_table_t *t, size_t capacity) {
-    if (!t || capacity == 0) return -1;
+    if (!t || capacity == 0 || (capacity & (capacity - 1)) != 0) return -1;
 
     t->entries = (arp_entry_t *)calloc(capacity, sizeof(arp_entry_t));
     if (!t->entries) return -1;
@@ -28,12 +28,12 @@ void arp_table_destroy(arp_table_t *t) {
 void arp_update(arp_table_t *t, uint32_t ip, const uint8_t *mac) {
     if (!t || !mac) return;
 
-    size_t idx = ip % t->capacity;
+    size_t idx = ip & (t->capacity - 1);
 
     pthread_rwlock_wrlock(&t->lock);
 
     for (size_t i = 0; i < t->capacity; i++) {
-        size_t curr = (idx + i) % t->capacity;
+        size_t curr = (idx + i) % (t->capacity - 1);
 
         if (!t->entries[curr].valid) {
             // Empty slot, insert here.
@@ -57,11 +57,11 @@ void arp_update(arp_table_t *t, uint32_t ip, const uint8_t *mac) {
 bool arp_get_mac(arp_table_t *t, uint32_t ip, uint8_t *out_mac) {
     if (!t || !out_mac) return false;
 
-    size_t idx = ip % t->capacity;
+    size_t idx = ip & (t->capacity - 1);
 
     pthread_rwlock_rdlock(&t->lock);
     for (size_t i = 0; i < t->capacity; i++) {
-        size_t curr = (idx + i) % t->capacity;
+        size_t curr = (idx + i) & (t->capacity - 1);
 
         if (t->entries[curr].valid && t->entries[curr].ip == ip) {
             memcpy(out_mac, t->entries[curr].mac, 6);

@@ -11,11 +11,11 @@ static size_t hash_ipv6(const uint8_t *ip, size_t capacity) {
     for (int i = 0; i < 4; i++) {
         h ^= p[i];
     }
-    return h % capacity;
+    return h & (capacity - 1);
 }
 
 int ndp_table_init(ndp_table_t *t, size_t capacity) {
-    if (!t || capacity == 0) return -1;
+    if (!t || capacity == 0 || (capacity & (capacity - 1)) != 0) return -1;
 
     t->entries = (ndp_entry_t *)calloc(capacity, sizeof(ndp_entry_t));
     if (!t->entries) return -1;
@@ -41,7 +41,7 @@ void ndp_update(ndp_table_t *t, const uint8_t *ip, const uint8_t *mac) {
 
     pthread_rwlock_wrlock(&t->lock);
     for (size_t i = 0; i < t->capacity; i++) {
-        size_t curr = (idx + i) % t->capacity;
+        size_t curr = (idx + i) & (t->capacity - 1);
 
         if (!t->entries[curr].valid) {
             /* Empty slot */
@@ -69,7 +69,7 @@ bool ndp_get_mac(ndp_table_t *t, const uint8_t *ip, uint8_t *out_mac) {
 
     pthread_rwlock_rdlock(&t->lock);
     for (size_t i = 0; i < t->capacity; i++) {
-        size_t curr = (idx + i) % t->capacity;
+        size_t curr = (idx + i) & (t->capacity - 1);
 
         if (t->entries[curr].valid && memcmp(t->entries[curr].ip, ip, 16) == 0) {
             memcpy(out_mac, t->entries[curr].mac, 6);
