@@ -6,10 +6,12 @@
 static size_t hash_ipv6(const uint8_t *ip, size_t capacity) {
     /* Fold the 16 bytes, XOR the parts */
     uint32_t h = 0;
-    const uint32_t *p = (const uint32_t *)ip;
+    uint32_t chunk;
 
     for (int i = 0; i < 4; i++) {
-        h ^= p[i];
+        /* memcpy handles unaligned access safely, as IP may not be 4-byte aligned */
+        memcpy(&chunk, ip + (i * 4), sizeof(uint32_t));
+        h ^= chunk;
     }
     return h & (capacity - 1);
 }
