@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "arp_table.h"
+#include "ndp_table.h"
 #include "parser.h"
 #include "pktbuf.h"
 #include "ring.h"
@@ -380,6 +381,44 @@ int test_arp_table(void) {
 
     // Test 6) Cleanup
     arp_table_destroy(&arpt);
+    return 0;
+}
+
+// --- NDP Table related tests ---
+int test_ndp_table(void) {
+    ndp_table_t t;
+
+    // Test 1) Initialization
+    TEST_ASSERT(ndp_table_init(&t, 16) == 0);
+
+    // Test 2) Update — learning new entry
+    // d9ce:a881::bb12 -> cc:11:aa:44:98:ab
+    uint8_t ip1[16] = {0xd9, 0xce, 0xa8, 0x81, 0, 0, 0, 0, 0, 0, 0, 0, 0xbb, 0x12};
+    uint8_t mac1[6] = {0xcc, 0x11, 0xaa, 0x44, 0x98, 0xab};
+    ndp_update(&t, ip1, mac1);
+
+    // Test 3) Lookup MAC - Success
+    uint8_t out[6];
+    bool found = ndp_get_mac(&t, ip1, out);
+    TEST_ASSERT(found == true);
+    TEST_ASSERT(memcmp(out, mac1, 6) == 0);
+
+    // Test 4) Lookup MAC - Fail (Non-existent IP)
+    uint8_t ip2[16] = {0x19, 0x2a, 0x0d, 0xb2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    found = ndp_get_mac(&t, ip2, out);
+    TEST_ASSERT(found == false);
+
+    // Test 5) Update existing entry
+    // d9ce:a881::bb12 -> bb:22:aa:44:98:cc
+    uint8_t mac2[6] = {0xbb, 0x22, 0xaa, 0x44, 0x98, 0xcc};
+    ndp_update(&t, ip1, mac2);
+
+    found = ndp_get_mac(&t, ip1, out);
+    TEST_ASSERT(found == true);
+    TEST_ASSERT(memcmp(out, mac2, 6) == 0);
+
+    // Test 6) Cleanup
+    ndp_table_destroy(&t);
     return 0;
 }
 

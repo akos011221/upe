@@ -52,6 +52,7 @@ add_executable(test_suite
     src/rule_table.c
     src/log.c
     src/arp_table.c
+    src/ndp_table.c
 )
 target_include_directories(test_suite PRIVATE include)
 # Simulating ARM/RISC-V crashes on x86 with Alignment Sanitizer
