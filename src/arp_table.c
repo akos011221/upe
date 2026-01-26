@@ -33,7 +33,7 @@ void arp_update(arp_table_t *t, uint32_t ip, const uint8_t *mac) {
     pthread_rwlock_wrlock(&t->lock);
 
     for (size_t i = 0; i < t->capacity; i++) {
-        size_t curr = (idx + i) % (t->capacity - 1);
+        size_t curr = (idx + i) & (t->capacity - 1);
 
         if (!t->entries[curr].valid) {
             // Empty slot, insert here.
