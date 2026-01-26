@@ -15,6 +15,77 @@
 // Global stop flag from main; required for all workers.
 extern volatile sig_atomic_t g_stop;
 
+static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
+    struct eth_hdr *eth = (struct eth_hdr *)b->data;
+    uint16_t ethertype = ntohs(eth->ethertype);
+
+    /* Handling of ARP packets */
+    if (ethertype == 0x0806) {
+        if (b->len >= sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
+            struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
+
+            /* Hardware Type 1 (Ethernet), Protocol 0x0800 (IPv4), HW Len 6, Proto Len 4 */
+            if (ntohs(arp->htype) == 1 && ntohs(arp->ptype) == 0x800 && arp->hlen == 6 &&
+                arp->plen == 4) {
+                uint32_t spa = ntohl(arp->spa); /* Sender Protocol Address (IP) */
+                arp_update(w->arpt, spa, arp->sha);
+                log_msg(LOG_DEBUG, "Learned ARP: %08X -> %02X:%02X:%02X:%02X:%02X:%02X", spa,
+                        arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4],
+                        arp->sha[5]);
+            }
+        }
+        /* Consume the packet */
+        pktbuf_free(w->pool, b);
+        return true;
+    }
+
+    /* Handling for IPv6 NDP packets (Neighbor Advertisement/Solicitation) */
+    if (ethertype == 0x86DD) {
+        if (b->len >=
+            sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) + sizeof(struct ndp_na_hdr)) {
+            struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
+
+            /* Next Header 58: ICMPv6 */
+            if (ip6->next_header == 58) {
+                struct ndp_na_hdr *ndp = (struct ndp_na_hdr *)(b->data + sizeof(struct eth_hdr) +
+                                                               sizeof(struct ipv6_hdr));
+                if (ndp->type == 135 || ndp->type == 136) {
+                    size_t offset = sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) +
+                                    sizeof(struct ndp_na_hdr);
+
+                    while (offset + 2 <= b->len) {
+                        uint8_t opt_type = b->data[offset];
+                        uint8_t opt_len = b->data[offset + 1] * 8;
+
+                        if (opt_len == 0 || offset + opt_len > b->len) break;
+
+                        if (ndp->type == 135 && opt_type == 1 && opt_len >= 8) {
+                            uint8_t *mac = b->data + offset + 2;
+                            ndp_update(w->ndpt, ip6->src_addr, mac);
+                            log_msg(LOG_DEBUG, "Learned NDP (NS): %02x:02x:02x:02x:02x:02x", mac[0],
+                                    mac[1], mac[2], mac[3], mac[4], mac[5]);
+                            break;
+                        }
+
+                        if (ndp->type == 136 && opt_type == 2 && opt_len >= 8) {
+                            uint8_t *mac = b->data + offset + 2;
+                            ndp_update(w->ndpt, ndp->target, mac);
+                            log_msg(LOG_DEBUG, "Learned NDP (NA): %02x:%02x:%02x:%02x:%02x:%02x",
+                                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+                            break;
+                        }
+                        offset += opt_len;
+                    }
+                    /* Consume the packet */
+                    pktbuf_free(w->pool, b);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static void *worker_main(void *arg) {
     worker_t *w = (worker_t *)arg;
 
@@ -37,82 +108,10 @@ static void *worker_main(void *arg) {
         // Debug: Visualize the raw packet data
         log_hexdump(LOG_DEBUG, b->data, b->len);
 
+        // Handle control packets (ARP, NDP)
+        if (handle_control_packet(w, b)) continue;
+
         struct eth_hdr *eth = (struct eth_hdr *)b->data;
-
-        // Check for ARP packets
-        if (ntohs(eth->ethertype) == 0x0806) {
-            if (b->len >= sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
-                struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
-
-                // Hardware Type 1 (Ethernet), Protocol 0x0800 (IPv4), HW Len 6, Proto Len 4
-                if (ntohs(arp->htype) == 1 && ntohs(arp->ptype) == 0x0800 && arp->hlen == 6 &&
-                    arp->plen == 4) {
-                    uint32_t spa = ntohl(arp->spa); // Sender Protocol Address (IP)
-                    arp_update(w->arpt, spa, arp->sha);
-                    log_msg(LOG_DEBUG, "Learned ARP: %08X -> %02X:%02X:%02X:%02X:%02X:%02X", spa,
-                            arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4],
-                            arp->sha[5]);
-                }
-            }
-            /* Consume the packet */
-            pktbuf_free(w->pool, b);
-            continue;
-        }
-
-        // Check for IPv6 NDP packet (Neighbor Advertisement)
-        if (ntohs(eth->ethertype) == 0x86DD) {
-            if (b->len >=
-                sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) + sizeof(struct ndp_na_hdr)) {
-                struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
-
-                // Next Header 58: ICMPv6
-                if (ip6->next_header == 58) {
-                    struct ndp_na_hdr *ndp =
-                        (struct ndp_na_hdr *)(b->data + sizeof(struct eth_hdr) +
-                                              sizeof(struct ipv6_hdr));
-
-                    // Type 135: Neighbor Solicitation (Learn from Source LL Addr)
-                    // Type 136: Neighbor Advertisement (Learn from Target LL Addr)
-                    if (ndp->type == 135 || ndp->type == 136) {
-                        // Parsing Options will reveal target Link-Layer Address
-                        size_t offset = sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) +
-                                        sizeof(struct ndp_na_hdr);
-
-                        while (offset + 2 <= b->len) {
-                            uint8_t opt_type = b->data[offset];
-                            uint8_t opt_len = b->data[offset + 1] * 8; // Length: units of 8 octets
-
-                            if (opt_len == 0 || offset + opt_len > b->len)
-                                break; /* Invalid packet */
-
-                            // NS (135) -> Look for Type 1 (Source LL) -> Map IPv6 Src to MAC
-                            if (ndp->type == 135 && opt_type == 1 && opt_len >= 8) {
-                                uint8_t *mac = b->data + offset + 2;
-                                ndp_update(w->ndpt, ip6->src_addr, mac);
-                                log_msg(LOG_DEBUG,
-                                        "Learned NDP (NS): %02x:%02x:%02x:%02x:%02x:%02x", mac[0],
-                                        mac[1], mac[2], mac[3], mac[4], mac[5]);
-                                break;
-                            }
-
-                            // NA (136) -> Look for Type 2 (Target LL) -> Map IPv6 Dst to MAC
-                            if (ndp->type == 136 && opt_type == 2 && opt_len >= 8) {
-                                uint8_t *mac = b->data + offset + 2;
-                                ndp_update(w->ndpt, ndp->target, mac);
-                                log_msg(LOG_DEBUG,
-                                        "Learned NDP (NA): %02x:%02x:%02x:%02x:%02x:%02x", mac[0],
-                                        mac[1], mac[2], mac[3], mac[4], mac[5]);
-                                break;
-                            }
-                            offset += opt_len;
-                        }
-                        /* Consume the packet */
-                        pktbuf_free(w->pool, b);
-                        continue;
-                    }
-                }
-            }
-        }
 
         // Parse the flow
         flow_key_t key;
@@ -171,14 +170,15 @@ static void *worker_main(void *arg) {
 
                 /*
                     First, check the local cache (1 element) to avoid lock contention.
-                        If packet is going to the same DstIP as the previous one, re-use the MAC.
-                            This way we don't have to use the lock.
+                        If packet is going to the same DstIP as the previous one, re-use the
+                   MAC. This way we don't have to use the lock.
                 */
                 if (w->last_arp_ip != 0 && key.dst_ip.v4 == w->last_arp_ip) {
                     memcpy(dst_mac, w->last_arp_mac, 6);
                     found = true;
                 } else if (arp_get_mac(w->arpt, key.dst_ip.v4, dst_mac)) {
-                    // If not in the cache, must do the look up & also update the worker cache.
+                    // If not in the cache, must do the look up & also update the worker
+                    // cache.
                     w->last_arp_ip = key.dst_ip.v4;
                     memcpy(w->last_arp_mac, dst_mac, 6);
                     found = true;
