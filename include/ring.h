@@ -26,9 +26,21 @@ void ring_destroy(spsc_ring_t *r);
 bool ring_push(spsc_ring_t *r, void *ptr);
 
 /*
+    Producer: Push multiple pointers into ring.
+        Returns number of items actually pushed.
+*/
+unsigned int ring_push_burst(spsc_ring_t *r, void *const *objs, unsigned int count);
+
+/*
     Consumer: Pop a pointer from ring.
         Returns NULL if ring is empty.
 */
 void *ring_pop(spsc_ring_t *r);
+
+/*
+    Consumer: Pop multiple pointers from ring.
+        Returns number of items actually popped.
+*/
+unsigned int ring_pop_burst(spsc_ring_t *r, void **objs, unsigned int count);
 
 #endif
