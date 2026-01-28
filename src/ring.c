@@ -33,9 +33,6 @@ void ring_destroy(spsc_ring_t *r) {
 }
 
 /*
-    Producer: Needs to see freed slots (space availability) and publish
-    data writes.
-*/
 bool ring_push(spsc_ring_t *r, void *ptr) {
     // "head" is local => relaxed, "tail" is consumer managed => acquire
     size_t head = atomic_load_explicit(&r->head, memory_order_relaxed);
@@ -54,11 +51,27 @@ bool ring_push(spsc_ring_t *r, void *ptr) {
     atomic_store_explicit(&r->head, next_head, memory_order_release);
     return true;
 }
+*/
+
+unsigned int ring_push_burst(spsc_ring_t *r, void *const *objs, unsigned int count) {
+    size_t head = atomic_load_explicit(&r->head, memory_order_relaxed);
+    size_t tail = atomic_load_explicit(&r->tail, memory_order_acquire);
+
+    size_t available = r->capacity - (head - tail);
+    if (count > available) {
+        count = (unsigned int)available;
+        if (count == 0) return 0;
+    }
+
+    for (unsigned int i = 0; i < count; i++) {
+        r->slots[(head + i) & r->mask] = objs[i];
+    }
+
+    atomic_store_explicit(&r->head, head + count, memory_order_release);
+    return count;
+}
 
 /*
-    Consumer: Needs to see slot data (content) and publish read completion
-    (slot freeing).
-*/
 void *ring_pop(spsc_ring_t *r) {
     // "tail" is local => relaxed, "head" is producer managed => acquire
     size_t tail = atomic_load_explicit(&r->tail, memory_order_relaxed);
@@ -75,4 +88,23 @@ void *ring_pop(spsc_ring_t *r) {
     // telling that the slot is free.
     atomic_store_explicit(&r->tail, tail + 1, memory_order_release);
     return ptr;
+}
+*/
+
+unsigned int ring_pop_burst(spsc_ring_t *r, void **objs, unsigned int count) {
+    size_t tail = atomic_load_explicit(&r->tail, memory_order_relaxed);
+    size_t head = atomic_load_explicit(&r->head, memory_order_acquire);
+
+    size_t entries = head - tail;
+    if (count > entries) {
+        count = (unsigned int)entries;
+        if (count == 0) return 0;
+    }
+
+    for (unsigned int i = 0; i < count; i++) {
+        objs[i] = r->slots[(tail + i) & r->mask];
+    }
+
+    atomic_store_explicit(&r->tail, tail + count, memory_order_release);
+    return count;
 }
