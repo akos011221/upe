@@ -46,44 +46,57 @@ int test_ring_buffer(void) {
     TEST_ASSERT(ring_init(&r, 100) == -1);
 
     // Test 2) Initialize with power-of-two
-    TEST_ASSERT(ring_init(&r, 4) == 0);
+    TEST_ASSERT(ring_init(&r, 8) == 0);
 
-    int a = 1, b = 2, c = 3, d = 4, e = 5;
+    int a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = 7, h = 8, i = 9;
 
     // Test 3) Fill ring to capacity. Checking if producer can fill all
     // available slots.
-    TEST_ASSERT(ring_push(&r, &a) == true);
-    TEST_ASSERT(ring_push(&r, &b) == true);
-    TEST_ASSERT(ring_push(&r, &c) == true);
-    TEST_ASSERT(ring_push(&r, &d) == true);
+    void *batch1[2] = {&a, &b};
+    TEST_ASSERT(ring_push_burst(&r, batch1, 2) == 2);
+    void *batch2[1] = {&c};
+    TEST_ASSERT(ring_push_burst(&r, batch2, 1) == 1);
+    void *batch3[2] = {&d, &e};
+    TEST_ASSERT(ring_push_burst(&r, batch3, 2) == 2);
+    void *batch4[3] = {&f, &g, &h};
+    TEST_ASSERT(ring_push_burst(&r, batch4, 3) == 3);
 
     // Test 4) Overflow check. Ring is full currently, a new item must fail.
-    TEST_ASSERT(ring_push(&r, &e) == false);
+    void *batch5[1] = {&i};
+    TEST_ASSERT(ring_push_burst(&r, batch5, 1) == 0);
 
     // Test 5) FIFO (First-In, First-Out) check. What was pushed first, must be
     // received first.
-    int *p = (int *)ring_pop(&r);
-    TEST_ASSERT(p == &a);
+    void *out_batch1[1];
+    TEST_ASSERT(ring_pop_burst(&r, out_batch1, 1) == 1);
+    TEST_ASSERT(out_batch1[0] == &a);
 
-    // Test 6) Wrap-around. One item was popped => 1 free slot. The 'head'
+    // Test 6) Wrap-around. 1 item was popped => 1 free slot. The 'head'
     // index (internal) is increasing (doesn't reset to 0). The ring must
     // wrap this new write to the beginning of the array.
-    TEST_ASSERT(ring_push(&r, &e) == true);
-    // Head was 4, Capacity is 4. (mask=capacity-1)
-    // 4 & 3 = 0, so 'e' must be at slot 0.
-    TEST_ASSERT(r.slots[0] == &e);
+    void *batch6[1] = {&i};
+    TEST_ASSERT(ring_push_burst(&r, batch6, 1) == 1);
+    // Head was 8, Capacity is 8. (mask=capacity-1)
+    // 8 & 7 = 0, so 'e' must be at slot 0.
+    TEST_ASSERT(r.slots[0] == &i);
 
     // Test 7) Drain the ring. Verify items come out in correct order.
-    // Sequence: Pushed [a,b,c,d] -> Popped [a] -> Pushed [e].
-    // Current: b (oldest), c, d, e (newest).
-    TEST_ASSERT(ring_pop(&r) == &b);
-    TEST_ASSERT(ring_pop(&r) == &c);
-    TEST_ASSERT(ring_pop(&r) == &d);
-    TEST_ASSERT(ring_pop(&r) == &e);
+    // Sequence: Pushed [a,b,c,d,e,f,g,h] -> Popped [a] -> Pushed [i].
+    void *out_batch2[7];
+    unsigned int popped = ring_pop_burst(&r, out_batch2, 7);
+    TEST_ASSERT(popped == 7);
+    TEST_ASSERT(out_batch2[0] == &b);
+    TEST_ASSERT(out_batch2[1] == &c);
+    TEST_ASSERT(out_batch2[2] == &d);
+    TEST_ASSERT(out_batch2[3] == &e);
+    TEST_ASSERT(out_batch2[4] == &f);
+    TEST_ASSERT(out_batch2[5] == &g);
+    TEST_ASSERT(out_batch2[6] == &h);
 
-    // Test 8) Underflow check. When ring is empty, popping must return NULL.
-    // This will make the worker thread sleep.
-    TEST_ASSERT(ring_pop(&r) == NULL);
+    // Test 8) Partial pop: only one element remains (i).
+    void *out_batch3[2];
+    TEST_ASSERT(ring_pop_burst(&r, out_batch3, 2) == 1);
+    TEST_ASSERT(out_batch3[0] == &i);
 
     ring_destroy(&r);
     return 0;
@@ -433,5 +446,6 @@ int main(void) {
     RUN_TEST(test_flow_hash);
     RUN_TEST(test_pktbuf_pool);
     RUN_TEST(test_arp_table);
+    RUN_TEST(test_ndp_table);
     return 0;
 }
