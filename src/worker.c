@@ -15,6 +15,8 @@
 // Global stop flag from main; required for all workers.
 extern volatile sig_atomic_t g_stop;
 
+#define WORKER_BURST_SIZE 32
+
 static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
     struct eth_hdr *eth = (struct eth_hdr *)b->data;
     uint16_t ethertype = ntohs(eth->ethertype);
@@ -86,152 +88,158 @@ static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
     return false;
 }
 
-static void *worker_main(void *arg) {
-    worker_t *w = (worker_t *)arg;
+static void process_packet(worker_t *w, pktbuf_t *b) {
+    // Debug: Visualize the raw packet data
+    log_hexdump(LOG_DEBUG, b->data, b->len);
 
-    while (1) {
-        pktbuf_t *b = (pktbuf_t *)ring_pop(w->rx_ring);
-        if (!b) {
-            if (g_stop) {
-                // Stop signal received + ring is empty.
-                break;
-            } else {
-                // Ring empty => avoid burning CPU while doing nothing.
-                struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000}; // 1ms
-                nanosleep(&ts, NULL);
-                continue;
-            }
-        }
+    // Handle control packets (ARP, NDP)
+    if (handle_control_packet(w, b)) return;
 
-        w->pkts_in++;
+    struct eth_hdr *eth = (struct eth_hdr *)b->data;
 
-        // Debug: Visualize the raw packet data
-        log_hexdump(LOG_DEBUG, b->data, b->len);
-
-        // Handle control packets (ARP, NDP)
-        if (handle_control_packet(w, b)) continue;
-
-        struct eth_hdr *eth = (struct eth_hdr *)b->data;
-
-        // Parse the flow
-        flow_key_t key;
-        if (parse_flow_key(b->data, b->len, &key) != 0) {
-            // Not a valid IPv4/TCP/UDP, drop it.
-            w->pkts_dropped++;
-            pktbuf_free(w->pool, b);
-            continue;
-        }
-        w->pkts_parsed++;
-
-        // Match a rule
-        const rule_t *r = rule_table_match(w->rt, &key);
-        if (!r) {
-            // No match, drop it.
-            w->pkts_dropped++;
-            pktbuf_free(w->pool, b);
-            continue;
-        }
-        w->pkts_matched++;
-
-        // Update per-rule counters. Lock-free as it's a private array for each worker.
-        if (w->rule_stats) {
-            w->rule_stats[r->rule_id].packets++;
-            w->rule_stats[r->rule_id].bytes += b->len;
-        }
-
-        if (r->action.type == ACT_DROP) {
-            w->pkts_dropped++;
-            pktbuf_free(w->pool, b);
-            continue;
-        }
-
-        if (r->action.type == ACT_FWD) {
-            /*
-                [L3 Processing]
-                    For IPv4, decrement TTL and update checksum.
-                    Then do ARP lookup and rewrite Src, Dst MAC
-                        Otherwise: transparent bridge.
-            */
-            if (key.ip_ver == 4) {
-                struct ipv4_hdr *ip = (struct ipv4_hdr *)(b->data + sizeof(struct eth_hdr));
-
-                if (ip->ttl <= 1) {
-                    w->pkts_dropped++;
-                    pktbuf_free(w->pool, b);
-                    continue;
-                }
-
-                ip->ttl--;
-                ip->checksum = 0; // Must be 0 before calculation.
-                ip->checksum = ipv4_checksum(ip, (ip->ver_ihl & 0x0F) * 4);
-
-                uint8_t dst_mac[6];
-                bool found = false;
-
-                /*
-                    First, check the local cache (1 element) to avoid lock contention.
-                        If packet is going to the same DstIP as the previous one, re-use the
-                   MAC. This way we don't have to use the lock.
-                */
-                if (w->last_arp_ip != 0 && key.dst_ip.v4 == w->last_arp_ip) {
-                    memcpy(dst_mac, w->last_arp_mac, 6);
-                    found = true;
-                } else if (arp_get_mac(w->arpt, key.dst_ip.v4, dst_mac)) {
-                    // If not in the cache, must do the look up & also update the worker
-                    // cache.
-                    w->last_arp_ip = key.dst_ip.v4;
-                    memcpy(w->last_arp_mac, dst_mac, 6);
-                    found = true;
-                }
-
-                if (found) {
-                    memcpy(eth->dst, dst_mac, 6);
-                    memcpy(eth->src, w->tx->eth_addr, 6);
-                }
-            } else if (key.ip_ver == 6) {
-                struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
-
-                if (ip6->hop_limit <= 1) {
-                    w->pkts_dropped++;
-                    pktbuf_free(w->pool, b);
-                    continue;
-                }
-
-                ip6->hop_limit--;
-
-                uint8_t dst_mac[6];
-                bool found = false;
-
-                if (memcmp(key.dst_ip.v6, w->last_ndp_ip, 16) == 0) {
-                    memcpy(dst_mac, w->last_ndp_mac, 6);
-                    found = true;
-                } else if (ndp_get_mac(w->ndpt, key.dst_ip.v6, dst_mac)) {
-                    memcpy(w->last_ndp_ip, key.dst_ip.v6, 16);
-                    memcpy(w->last_ndp_mac, dst_mac, 6);
-                    found = true;
-                }
-
-                if (found) {
-                    memcpy(eth->dst, dst_mac, 6);
-                    memcpy(eth->src, w->tx->eth_addr, 6);
-                }
-            }
-
-            // Forward out on TX interface the raw L2 frame (as captured).
-            if (tx_send(w->tx, b->data, b->len) != 0) {
-                w->pkts_forwarded++;
-            } else {
-                // TX failed => can be considered dropped.
-                w->pkts_dropped++;
-            }
-
-            pktbuf_free(w->pool, b);
-            continue;
-        }
-
-        // Unknown action => drop it.
+    // Parse the flow
+    flow_key_t key;
+    if (parse_flow_key(b->data, b->len, &key) != 0) {
+        // Not a valid IPv4/TCP/UDP, drop it.
         w->pkts_dropped++;
         pktbuf_free(w->pool, b);
+        return;
+    }
+    w->pkts_parsed++;
+
+    // Match a rule
+    const rule_t *r = rule_table_match(w->rt, &key);
+    if (!r) {
+        // No match, drop it.
+        w->pkts_dropped++;
+        pktbuf_free(w->pool, b);
+        return;
+    }
+    w->pkts_matched++;
+
+    // Update per-rule counters. Lock-free as it's a private array for each worker.
+    if (w->rule_stats) {
+        w->rule_stats[r->rule_id].packets++;
+        w->rule_stats[r->rule_id].bytes += b->len;
+    }
+
+    if (r->action.type == ACT_DROP) {
+        w->pkts_dropped++;
+        pktbuf_free(w->pool, b);
+        return;
+    }
+
+    if (r->action.type == ACT_FWD) {
+        /*
+            [L3 Processing]
+                For IPv4, decrement TTL and update checksum.
+                Then do ARP lookup and rewrite Src, Dst MAC
+                    Otherwise: transparent bridge.
+        */
+        if (key.ip_ver == 4) {
+            struct ipv4_hdr *ip = (struct ipv4_hdr *)(b->data + sizeof(struct eth_hdr));
+
+            if (ip->ttl <= 1) {
+                w->pkts_dropped++;
+                pktbuf_free(w->pool, b);
+                return;
+            }
+
+            ip->ttl--;
+            ip->checksum = 0; // Must be 0 before calculation.
+            ip->checksum = ipv4_checksum(ip, (ip->ver_ihl & 0x0F) * 4);
+
+            uint8_t dst_mac[6];
+            bool found = false;
+
+            /*
+                First, check the local cache (1 element) to avoid lock contention.
+                    If packet is going to the same DstIP as the previous one, re-use the
+               MAC. This way we don't have to use the lock.
+            */
+            if (w->last_arp_ip != 0 && key.dst_ip.v4 == w->last_arp_ip) {
+                memcpy(dst_mac, w->last_arp_mac, 6);
+                found = true;
+            } else if (arp_get_mac(w->arpt, key.dst_ip.v4, dst_mac)) {
+                // If not in the cache, must do the look up & also update the worker
+                // cache.
+                w->last_arp_ip = key.dst_ip.v4;
+                memcpy(w->last_arp_mac, dst_mac, 6);
+                found = true;
+            }
+
+            if (found) {
+                memcpy(eth->dst, dst_mac, 6);
+                memcpy(eth->src, w->tx->eth_addr, 6);
+            }
+        } else if (key.ip_ver == 6) {
+            struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
+
+            if (ip6->hop_limit <= 1) {
+                w->pkts_dropped++;
+                pktbuf_free(w->pool, b);
+                return;
+            }
+
+            ip6->hop_limit--;
+
+            uint8_t dst_mac[6];
+            bool found = false;
+
+            if (memcmp(key.dst_ip.v6, w->last_ndp_ip, 16) == 0) {
+                memcpy(dst_mac, w->last_ndp_mac, 6);
+                found = true;
+            } else if (ndp_get_mac(w->ndpt, key.dst_ip.v6, dst_mac)) {
+                memcpy(w->last_ndp_ip, key.dst_ip.v6, 16);
+                memcpy(w->last_ndp_mac, dst_mac, 6);
+                found = true;
+            }
+
+            if (found) {
+                memcpy(eth->dst, dst_mac, 6);
+                memcpy(eth->src, w->tx->eth_addr, 6);
+            }
+        }
+
+        // Forward out on TX interface the raw L2 frame (as captured).
+        if (tx_send(w->tx, b->data, b->len) != 0) {
+            w->pkts_forwarded++;
+        } else {
+            // TX failed => can be considered dropped.
+            w->pkts_dropped++;
+        }
+
+        pktbuf_free(w->pool, b);
+        return;
+    }
+
+    // Unknown action => drop it.
+    w->pkts_dropped++;
+    pktbuf_free(w->pool, b);
+}
+
+static void *worker_main(void *arg) {
+    worker_t *w = (worker_t *)arg;
+    void *batch[WORKER_BURST_SIZE];
+
+    while (1) {
+        unsigned int n = ring_pop_burst(w->rx_ring, batch, WORKER_BURST_SIZE);
+
+        if (n == 0) {
+            if (g_stop) {
+                break; // Stop signal received + ring is empty.
+            }
+            // Ring empty => avoid burning CPU: sleep for 1us.
+            struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000};
+            nanosleep(&ts, NULL);
+            continue;
+        }
+
+        w->pkts_in += n;
+
+        for (unsigned int i = 0; i < n; i++) {
+            process_packet(w, (pktbuf_t *)batch[i]);
+        }
     }
 
     return NULL;

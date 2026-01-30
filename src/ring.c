@@ -32,27 +32,6 @@ void ring_destroy(spsc_ring_t *r) {
     r->mask = 0;
 }
 
-/*
-bool ring_push(spsc_ring_t *r, void *ptr) {
-    // "head" is local => relaxed, "tail" is consumer managed => acquire
-    size_t head = atomic_load_explicit(&r->head, memory_order_relaxed);
-    size_t tail = atomic_load_explicit(&r->tail, memory_order_acquire);
-
-    size_t next_head = head + 1;
-    if (next_head - tail > r->capacity) {
-        // Ring is full.
-        return false;
-    }
-
-    r->slots[head & r->mask] = ptr;
-
-    // Release store here ensures that the pointer write to slots is visible
-    // before advancing head => consumer will see correct pointer.
-    atomic_store_explicit(&r->head, next_head, memory_order_release);
-    return true;
-}
-*/
-
 unsigned int ring_push_burst(spsc_ring_t *r, void *const *objs, unsigned int count) {
     size_t head = atomic_load_explicit(&r->head, memory_order_relaxed);
     size_t tail = atomic_load_explicit(&r->tail, memory_order_acquire);
@@ -70,26 +49,6 @@ unsigned int ring_push_burst(spsc_ring_t *r, void *const *objs, unsigned int cou
     atomic_store_explicit(&r->head, head + count, memory_order_release);
     return count;
 }
-
-/*
-void *ring_pop(spsc_ring_t *r) {
-    // "tail" is local => relaxed, "head" is producer managed => acquire
-    size_t tail = atomic_load_explicit(&r->tail, memory_order_relaxed);
-    size_t head = atomic_load_explicit(&r->head, memory_order_acquire);
-
-    if (tail == head) {
-        // Consumer caught up to producer => no items to read.
-        return NULL;
-    }
-
-    void *ptr = r->slots[tail & r->mask];
-
-    // Release store here ensures that slot read completion is visible before
-    // telling that the slot is free.
-    atomic_store_explicit(&r->tail, tail + 1, memory_order_release);
-    return ptr;
-}
-*/
 
 unsigned int ring_pop_burst(spsc_ring_t *r, void **objs, unsigned int count) {
     size_t tail = atomic_load_explicit(&r->tail, memory_order_relaxed);

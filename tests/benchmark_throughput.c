@@ -128,24 +128,34 @@ int main(void) {
     uint64_t pushed_count = 0;
     time_t start_sec = time(NULL);
 
+    void *batch[BATCH_SIZE];
+    int actual_batch_size = 0;
+
     while (time(NULL) - start_sec < TEST_DURATION_SEC) {
         // Push a batch of packets
+
         for (int i = 0; i < BATCH_SIZE; i++) {
             pktbuf_t *b = pktbuf_alloc(&pool);
-            if (!b) {
-                // Pool empty, worker has to free some
-                break;
-            }
+            if (!b) break;
 
             build_dummy_packet(b);
-
-            if (!ring_push(&ring, b)) {
-                // Ring is full, free the buffer and back off
-                pktbuf_free(&pool, b);
-                break;
-            }
-            pushed_count++;
+            batch[actual_batch_size++] = b;
         }
+
+        unsigned int pushed = ring_push_burst(&ring, batch, (unsigned int)actual_batch_size);
+        pushed_count += pushed;
+
+        // Free packets that were allocated but not pushed (ring was full)
+        for (unsigned int i = pushed; i < actual_batch_size; i++) {
+            pktbuf_free(&pool, batch[i]);
+        }
+
+        actual_batch_size = 0;
+    }
+
+    // Free packets that were allocated but not pushed (because ring was full)
+    for (int i = 0; i < actual_batch_size; i++) {
+        pktbuf_free(&pool, batch[i]);
     }
 
     // 4) Measure
