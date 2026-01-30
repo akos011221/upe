@@ -18,99 +18,92 @@ graph LR
 ### Design
 The goal is to minimize the lock contention when multiple threads are used.
 
+We use two-tier allocation strategy:
 *   **Global Pool**: A central, mutex-protected linked list of free buffers.
 *   **Thread-Local Cache (LIFO):** Each worker has its own private small cache (size 32) of buffers using `__thread` storage.
-    *   **Allocation**: Threads pop from their local cache (Lock-Free, O(1)). If empty, a burst (16 items) is fetched from the Global Pool.
-    *   **Deallocation**: Threads push to their local cache (Lock-Free, O(1)). If full, a burst (16 items) is flushed back to the Global Pool.
+    *   **Allocation**: Threads first check their local cache (lock-free, O(1)). If empty, they grab a burst of 16 buffers from the global pool.
+    *   **Deallocation**: Threads push to their local cache (lock-free, O(1)). When the cache is full, they flush 16 buffers back to the global pool.
 
-### API
-*   **`pktbuf_pool_init`**: Pre-allocates the entire heap of packets. This ensures the engine never fails due to OOM (Out Of Memory) during operation.
-*   **`pktbuf_alloc` / `pktbuf_free`**: These are the synchronization points.
-    *   *Optimization:* Thread-local caching is implemented. The global lock is only acquired during burst transfers (when local cache is empty/full).
+### Key functions:
+*   **`pktbuf_pool_init`**: Pre-allocates all packet buffers upfront. This prevents OOM failures during packet processing.
+*   **`pktbuf_alloc` / `pktbuf_free`**: These are the only synchronization points. The global lock is acquired only during burst transfers.
 
 ---
 
 ## 2. Ingress & Handoff
 
 ### Design
-To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer / Single-Consumer (SPSC) Rings**.
+To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer / Single-Consumer (SPSC) ring buffers**.
 
 *   **Topology:** 1 RX Thread feeds $N$ Workers via $N$ distinct rings.
-*   **Data Transfer:** Only the 8-byte pointer (`pktbuf_t*`) is passed through the ring. The packet data stays in the buffer allocated from the pool.
-*   **Software RSS:** The RX thread calculates a symmetric 5-tuple hash (SrcIP, DstIP, SrcPort, DstPort,, Proto) to select the destination ring. This ensures bidirectional flows land on the same worker.
-
-### API
-*   **`ring_push` / `ring_pop`**:
-    *   **Lock-Free:** Uses C11 `stdatomic`.
-    *   **`memory_order_release` (Producer):** Ensures the pointer written to the slot is visible *before* the `head` index is updated.
-    *   **`memory_order_acquire` (Consumer):** Ensures the consumer sees the updated `head` index *before* reading the slot.
-    *   *Why?* This allows the RX thread and Worker thread to operate without ever putting the CPU to sleep (no mutexes), maximizing throughput.
-
+*   **Data Transfer:** Only the 8-byte pointer (`pktbuf_t*`) is passed through the ring. The packet data stays in the pre-allocated buffer.
+*   **Software RSS:** The RX thread calculates a symmetric 5-tuple hash (SrcIP, DstIP, SrcPort, DstPort,, Proto) to pick the destination ring. This ensures bidirectional flows (c2s and s2c) always land on the same worker.
+*   **Burst Processing:** 
+    *   RX maintains per-ring staging buffers (size 32) that accumulate packets.
+    *   When a buffer fills or pcap times out (1ms), packets are flushed via `ring_push_burst`.
+    *   Workers dequeue packets in batches using `ring_pop_burst` (up to 32 at a time).
+*   **Lock Free Implementation:**
+    *   Uses C11 `stdatomic` with acquire/release memory ordering.
+    *   `memory_order_release` (Producer): Makes sure data is written before updating the  head index.
+    *   `memory_order_acquire` (Consumer): Makes sure consumer sees the head update before reading data.
+    *   No mutexes or syscalls in the hot path, RX and workers never block each other.
 ---
 
 ## 3. Parser
 
-### Design
 The parser extracts flow information (5-tuple) from raw packet data. It is used by both the RX thread (for RSS hashing) and Workers (for Rule matching).
 
-*   **Zero-Copy:** Reads headers directly from the buffer.
-*   **Dual-Stack:** Support IPv4 and IPv6.
+### Design
+*   **Zero-Copy:** Reads headers directly from the buffer without copying.
+*   **Dual-Stack:** Handles both IPv4 and IPv6.
 
 ### IPv6 Implementation Details
-*   **Storage:** IPv6 addresses are stored as `uint8_t[16]` inside a `union`.
-*   **Parsing (Memcpy vs Casting):** We use `memcpy` to extract IPv6 addresses instead of casting the pointer to `uint64_t*` or `uint128_t*`.
-    *   **Alignment Safety:** The Ethernet header is 14 bytes. The v6 header starts at offset 14. Since 14 is not divisible by 4 or 8, accessing it as a multi-byte integer causes **Unaligned Memory Access**. On some architectures, this triggers a CPU exception (Bus Error). `memcpy` handles unaligned data safely.
-    *   **Endian reasons:** A byte array (`uint8_t[]`) represents the data exactly as it  appears on the wire. This comes handy while debugging compared to integers which are swapped by Little Endian CPUs.
-    *   **Hashing:** To fit 128-bit address into a 32-bit hash (required for the Ring ID  modulo operation), we pack the address. We view the 16 bytes as four 32-bit integers and XOR them together. This preserves entropy while reducing size.
+*   IPv6 addresses are stored as `uint8_t[16]` inside a `union`. We use `memcpy` to extract them instead of pointer casting for two reasons:
+    *   1. **Alignment safety**: The Ethernet header is 14 bytes, so the IPv6 header starts at an offset not divisible by 4 or 8. Accessing it as `uint64_t*` or `uint128_t*` would cause unaligned memory access, which triggers a bus error on some architectures. `memcpy` handles this safely.
+    *   2. **Endianness**: Byte arrays represent data exactly as it appears on the wire, which makes debugging easier compared to integers that get byte-swapped on little-endian CPUs.
+
+    For hashing, we pack the 128-bit address into 32 bits by splitting it into four 32-bit chunks and XORing them together. This preserves entropy while fitting the ring selection logic.
 
 ---
 
 ## 4. Workers
 
-### Design
-Workers are  dataplane. They are designed to be as independent as possible, though they currently share the global memory pool.
+Workers implement the data plane. They're designed to be as independent as possible, though they share the global memory pool.
 
-*   **Private State:**
-    *   `rx_ring`: Dedicated input channel.
-    *   `rule_stats`: **Private** array of counters.
-*   **Shared State (Read-Only):**
-    *   `rt`: The Rule Table.
-    *   `tx`: The TX context.
-*   **Shared State (Write):**
-    *   `pool`: The global packet pool (via Mutex).
+*   **Per-Worker State:**
+    *   `rx_ring`: Dedicated input ring (no sharing).
+    *   `rule_stats`: Private array of counters (lock-free increments).
+    *   L1 caches for ADP/NDP lookups (single-entry, avoids lock contention).
+*   **Shared State:**
+    *   Read-only: Rule table, TX context.
+    *   Write (synchronized): Global packet pool.
 
-### API
-*   **`worker_init`**:
-    *   Allocates `w->rule_stats` based on `rt->capacity`.
-    *   *Reason:* We allocate stats memory here so `worker_main` never has to check for allocation or resize arrays.
-*   **`worker_main`**:
-    *   **Batchless Processing:** Currently processes one packet at a time (`ring_pop` -> `parse` -> `match` -> `free`).
-    *   **Lock-Free Stats:** Increments `w->rule_stats[id]` directly. Since no other thread touches this memory, it requires no atomic instructions, which is a significant performance win.
+**Processing Loop:**
+*   1. Pop up to 32 packets at once using `ring_pop_burst`.
+*   2. For each packet:
+    *   Check if it's a control packet (ARP/NDP) and learn MAC address.
+    *   Parse the 5-tuple.
+    *   Match against rules.
+    *   For forwarded packets: decrement TTL/hop-limit, update checksums, rewrite MAC and addresses, then transmit.
+*   3. Sleeps for 1μs if the ring is empty so the CPU is not spinning.
+
+**Stats:** Counters are incremented without atomics since each worker has private memory. Stats thread aggregates them periodically.
 
 ---
 
 ## 5. Policy
 
 ### Design
-The classification engine is a linear list of rules sorted by priority.
+The classification engine is a simple linear array of rules  sorted by priority. `rule_table_match` iterates through the list until it finds a match. First match wins.
 
-*   **Lookup:** `rule_table_match` iterates through the array.
-*   **Semantics:** First-match wins.
-*   **Thread Safety:** The table is effectively immutable during the packet processing phase. Workers read it concurrently without locks.
+The rule table is effectively immutable during packet processing, so workers can read it concurrently without locks.
 
 ---
 
 ## 6. Observability
 
-### Design
-To view the system state without slowing it down, we use a separate thread.
+A seperate stats thread wakes up every second to aggregate and  display counters. It loops through all worker structures and sums their private `rule_stats` arrays.
 
-*   **Mechanism:** The thread wakes up every 1 second.
-*   **Aggregation:** It loops through all `worker_t` structures and sums their private `rule_stats`.
-*   **Consistency:** It relies on the eventual consistency of reading aligned 64-bit integers. It does not lock the workers.
-
-### API
-*   **`stats_thread_func`**:
-    *   *Why iterate workers?* This pulls the complexity of aggregation out of the packet path. The workers just increment; the stats thread does the heavy lifting of summing and formatting.
+The design keeps aggregation complexity out of the packet processing path. Workers just increment their local counters, and stats thread handles the rest. There's no locking.
 
 ---
