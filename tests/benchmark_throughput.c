@@ -116,7 +116,7 @@ int main(void) {
     // 2) Start a worker
     worker_t w;
     // NULL for TX, as we're only dropping.
-    worker_init(&w, 0, &ring, &pool, &rt, &tx, &arpt, &ndpt);
+    worker_init(&w, 0, -1, &ring, &pool, &rt, &tx, &arpt, &ndpt);
     worker_start(&w);
 
     printf("Benchmarking for %d seconds...\n", TEST_DURATION_SEC);

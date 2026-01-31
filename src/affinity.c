@@ -27,7 +27,7 @@ int affinity_pin_thread(pthread_t thread, int core_id) {
     // Clears all bits, like `memset(&cpuset, 0, sizeof(cpuset))`.
     CPU_ZERO(&cpuset);
     // Sets the bit at pos `core_id` to 1. Thread may only run on that core.
-    CPU_SET(core_id, &cpuset);
+    CPU_SET((size_t)core_id, &cpuset);
 
     /*
         1. Kernel validates the CPU mask (core exist and online?)
@@ -75,7 +75,7 @@ bool affinity_is_pinned(pthread_t thread, int core_id) {
     // If set: 1, if clear: 0
     /* Doesn't guarantee that thread is ONLY pinned to core_id.
        for that, need to verify if only ONE bit is set. */
-    return CPU_ISSET(core_id, &cpuset);
+    return CPU_ISSET((size_t)core_id, &cpuset);
 }
 
 void affinity_print(pthread_t thread) {
@@ -92,16 +92,30 @@ void affinity_print(pthread_t thread) {
     // Can be used to check if it's pinned to 1 core or multiple, or unpinned.
     int count = CPU_COUNT(&cpuset);
 
-    char cores_str[256] = {0};
-    int offset = 0;
-
     int num_cores = affinity_get_num_cores();
+    if (num_cores <= 0) {
+        log_msg(LOG_WARN, "Thread affinity: %d cores (unknown)", count);
+        return;
+    }
+
+    // Build core list string.
+    char cores_str[256] = {0};
+    size_t offset = 0;
+
     for (int i = 0; i < num_cores; i++) {
-        if (CPU_ISSET(i, &cpuset)) {
-            if (offset > 0) {
-                offset += snprintf(cores_str + offset, sizeof(cores_str) - offset, ", ");
+        if (CPU_ISSET((size_t)i, &cpuset)) {
+            if (offset > 0 && offset < sizeof(cores_str) - 1) {
+                int written = snprintf(cores_str + offset, sizeof(cores_str) - offset, ", ");
+                if (written > 0) {
+                    offset += (size_t)written;
+                }
             }
-            offset += snprintf(cores_str + offset, sizeof(cores_str) - offset, "%d", i);
+            if (offset < sizeof(cores_str) - 1) {
+                int written = snprintf(cores_str + offset, sizeof(cores_str) - offset, "%d", i);
+                if (written > 0) {
+                    offset += (size_t)written;
+                }
+            }
         }
     }
 

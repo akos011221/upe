@@ -7,9 +7,8 @@
 /*
     Get number of available CPU cores.
 
-    Primary API: sysconf(_SC_NPROCESSORS_ONLN)
-    Fallback: /sys/devices/system/cpu/online
-        Return number of cores (>= 1) or -1 on error.
+    Uses sysconf(_SC_NPROCESSORS_ONLN).
+        Return number of cores currently ONLINE (>= 1) or -1 on error.
 */
 int affinity_get_num_cores(void);
 

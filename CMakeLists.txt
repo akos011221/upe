@@ -17,6 +17,7 @@ add_executable(upe
   src/ring.c
   src/arp_table.c
   src/ndp_table.c
+  src/affinity.c
 )
 
 target_include_directories(upe PRIVATE include)
@@ -53,6 +54,7 @@ add_executable(test_suite
     src/log.c
     src/arp_table.c
     src/ndp_table.c
+    src/affinity.c
 )
 target_include_directories(test_suite PRIVATE include)
 # Simulating ARM/RISC-V crashes on x86 with Alignment Sanitizer
@@ -67,6 +69,6 @@ add_executable(benchmark_pktbuf tests/benchmark_pktbuf.c src/pktbuf.c)
 target_include_directories(benchmark_pktbuf PRIVATE include)
 target_link_libraries(benchmark_pktbuf pthread)
 
-add_executable(benchmark_throughput tests/benchmark_throughput.c src/pktbuf.c src/ring.c src/rule_table.c src/worker.c src/parser.c src/log.c src/arp_table.c src/ndp_table.c)
+add_executable(benchmark_throughput tests/benchmark_throughput.c src/pktbuf.c src/ring.c src/rule_table.c src/worker.c src/parser.c src/log.c src/arp_table.c src/ndp_table.c src/affinity.c)
 target_include_directories(benchmark_throughput PRIVATE include)
 target_link_libraries(benchmark_throughput pthread)
