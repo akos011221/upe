@@ -107,3 +107,64 @@ A seperate stats thread wakes up every second to aggregate and  display counters
 The design keeps aggregation complexity out of the packet processing path. Workers just increment their local counters, and stats thread handles the rest. There's no locking.
 
 ---
+
+## 7. CPU Affinity
+
+Each thread is pinned to a dedicated CPU core using `pthread_setaffinity_np` to maximize cache locality and minimize thread migration overhead.
+
+### Core Assignment
+
+On a 4-core system with 2 workers:
+
+Core 0: RX thread (main)
+Core 1: Worker 0
+Core 2: Worker 1
+Core 3: Stats thread
+
+The assignment is **sequential** (consecutive cores starting from 0). This works well for:
+- **Single-socket sytems**: All cores share the same L3 cache and memory controller
+- **Multi-socket systems with cores 0-N on socket 0**: Threads stay on the same socket by default
+
+**Note:** The current implementation does not query NUMA topology. If you are running on a multi-socket system and you care about NUMA performance, you should manually check (using `lscpu` or `/sys/devices/system/node`) that cores 0-3 are actually on the same socket. The code does not do this automatically.
+
+### Why This is Important
+
+**Cache Locality:**
+- Each CPU has private L1/L2 caches (32KB/256KB, 1-4ns latency)
+- When threads migrate between cores, caches go cold
+- Access after migration is from RAM (~100ns) instead of that ~1-4ns L1 access
+- With pinning we can keep the hot data (rule table, ARP cache, flow state) in L1/L2
+
+**NUMA on Multi-Socket Systems:**
+- Local memory access: ~80ns
+- Remote (cross-socket) memory access: ~140ns
+- We must keep threads on the same socket as their memory
+
+### Implementation
+
+Threads pin themselves on startup. This is to prevent thread running before the pinning is complete. Also ensures that the NUMA first-touch policy works.
+
+```c
+static void *worker_main(void *arg) {
+    worker_t *w = (worker_t *)arg;
+    
+    if (w->core_id >= 0) {
+        affinity_pin_self(w->core_id);  // First action
+    }
+    
+    // ... packet processing loop ...
+}
+```
+
+Affinity is skipped gracefully with a warning if `affinity_get_num_cores()` fails (i.e, not enough cores).
+
+Check affinity with:
+
+```bash
+# While upe is running:
+grep "Cpus_allowed_list" /proc/$(pgrep upe)/task/*/status
+```
+
+Each thread should show a single core number in its allowed list.
+
+---
