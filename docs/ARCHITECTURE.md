@@ -114,12 +114,11 @@ Each thread is pinned to a dedicated CPU core using `pthread_setaffinity_np` to 
 
 ### Core Assignment
 
-On a 4-core system with 2 workers:
-
-Core 0: RX thread (main)
-Core 1: Worker 0
-Core 2: Worker 1
-Core 3: Stats thread
+*   **On a 4-core system with 2 workers:**
+    *   Core 0: RX thread (main)
+    *   Core 1: Worker 0
+    *   Core 2: Worker 1
+    *   Core 3: Stats thread
 
 The assignment is **sequential** (consecutive cores starting from 0). This works well for:
 - **Single-socket sytems**: All cores share the same L3 cache and memory controller
@@ -142,17 +141,15 @@ The assignment is **sequential** (consecutive cores starting from 0). This works
 
 ### Implementation
 
-Threads pin themselves on startup. This is to prevent thread running before the pinning is complete. Also ensures that the NUMA first-touch policy works.
+Threads pin themselves immediately on startup so that all memory initialization performed by the thread occurs after CPU affinity is set. This guarantees that **NUMA first-touch placement** allocates pages on the NUMA node local to the pinned CPU.
 
 ```c
 static void *worker_main(void *arg) {
     worker_t *w = (worker_t *)arg;
     
     if (w->core_id >= 0) {
-        affinity_pin_self(w->core_id);  // First action
+        affinity_pin_self(w->core_id);
     }
-    
-    // ... packet processing loop ...
 }
 ```
 
