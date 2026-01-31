@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "worker.h"
+#include "affinity.h"
 #include "arp_table.h"
 #include "log.h"
 #include "ndp_table.h"
@@ -222,6 +223,14 @@ static void *worker_main(void *arg) {
     worker_t *w = (worker_t *)arg;
     void *batch[WORKER_BURST_SIZE];
 
+    if (w->core_id >= 0) { // -1: "no pinning"
+        if (affinity_pin_self(w->core_id) != 0) {
+            log_msg(LOG_WARN, "Worker %d: failed to pin to core %d", w->worker_id, w->core_id);
+        } else {
+            log_msg(LOG_INFO, "Worker %d: pinned to core %d", w->worker_id, w->core_id);
+        }
+    }
+
     while (1) {
         unsigned int n = ring_pop_burst(w->rx_ring, batch, WORKER_BURST_SIZE);
 
@@ -245,11 +254,12 @@ static void *worker_main(void *arg) {
     return NULL;
 }
 
-int worker_init(worker_t *w, int worker_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
+int worker_init(worker_t *w, int worker_id, int core_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
                 const rule_table_t *rt, const tx_ctx_t *tx, arp_table_t *arpt, ndp_table_t *ndpt) {
     if (!w || !rt) return -1;
 
     w->worker_id = worker_id;
+    w->core_id = core_id;
     w->rx_ring = rx_ring;
     w->pool = pool;
     w->rt = rt;

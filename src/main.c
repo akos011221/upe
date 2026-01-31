@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "affinity.h"
 #include "arp_table.h"
 #include "log.h"
 #include "ndp_table.h"
@@ -155,17 +156,60 @@ static void install_demo_flows(rule_table_t *rt) {
     rule_table_add(rt, &r3);
 }
 
+static int assign_cores(int num_workers, int *rx_core, int *worker_cores, int *stats_core) {
+    int total_cores = affinity_get_num_cores();
+    int required_cores = 1 + num_workers + 1; // RX + Workers + Stats
+
+    if (total_cores < required_cores) {
+        log_msg(LOG_WARN,
+                "Not enough cores for affinity: need %d (1 RX + %d workers + 1 stats), have %d. "
+                "Running without CPU pinning (performance may suffer).",
+                required_cores, num_workers, total_cores);
+
+        // Disable affinity by setting all cores to -1.
+        *rx_core = -1;
+        *stats_core = -1;
+        for (int i = 0; i < num_workers; i++) {
+            worker_cores[i] = -1;
+        }
+        return -1;
+    }
+
+    // Assign cores.
+    *rx_core = 0;
+    for (int i = 0; i < num_workers; i++) {
+        worker_cores[i] = 1 + i;
+    }
+    *stats_core = 1 + num_workers;
+
+    log_msg(LOG_INFO, "CPU affinity enabled: %d cores available", total_cores);
+    log_msg(LOG_INFO, " RX      core %d", *rx_core);
+    log_msg(LOG_INFO, " Workers cores: %d-%d", worker_cores[0], worker_cores[num_workers - 1]);
+    log_msg(LOG_INFO, " Stats    core %d", *stats_core);
+
+    return 0;
+}
+
 typedef struct {
     worker_t *workers;
     int num_workers;
     const rule_table_t *rt;
+    int core_id;
 } stats_ctx_t;
 
 static void *stats_thread_func(void *arg) {
     stats_ctx_t *ctx = (stats_ctx_t *)arg;
 
+    if (ctx->core_id >= 0) {
+        if (affinity_pin_self(ctx->core_id) != 0) {
+            log_msg(LOG_WARN, "Stats thread: failed to pin to core %d", ctx->core_id);
+        } else {
+            log_msg(LOG_INFO, "Stats thread: pinned to core %d", ctx->core_id);
+        }
+    }
+
     while (!g_stop) {
-        sleep(1); // Stats thread wakes up every second
+        sleep(1); // Stats thread wakes up every second.
 
         printf("\033[2J\033[H");
         printf("=== UPE Statistics ===\n");
@@ -175,7 +219,7 @@ static void *stats_thread_func(void *arg) {
         uint64_t total_pkts = 0;
         uint64_t total_bytes = 0;
 
-        // Iterate over rules, ordered by priority
+        // Iterate over rules, ordered by priority.
         for (size_t i = 0; i < ctx->rt->count; i++) {
             const rule_t *r = &ctx->rt->rules[i];
             uint32_t rid = r->rule_id;
@@ -183,7 +227,7 @@ static void *stats_thread_func(void *arg) {
             uint64_t p_sum = 0;
             uint64_t b_sum = 0;
 
-            // Aggregate stats from all workers
+            // Aggregate stats from all workers.
             for (int w = 0; w < ctx->num_workers; w++) {
                 if (ctx->workers[w].rule_stats) {
                     p_sum += ctx->workers[w].rule_stats[rid].packets;
@@ -219,6 +263,25 @@ int main(int argc, char **argv) {
     const uint16_t WORKERS_NUM = 2;
     const size_t RING_CAPACITY = 1024;
     const size_t POOL_CAPACITY = 4096;
+
+    // === CPU affinity setup. ===
+    int rx_core = -1;
+    int stats_core = -1;
+    int worker_cores[WORKERS_NUM];
+
+    int num_cores = affinity_get_num_cores();
+    if (num_cores > 0) {
+        log_msg(LOG_INFO, "System has %d CPU cores available", num_cores);
+        assign_cores(WORKERS_NUM, &rx_core, worker_cores, &stats_core);
+    } else {
+        log_msg(LOG_WARN, "Failed to detect CPU cores, disabling affinity");
+        rx_core = stats_core - 1;
+        for (int i = 0; i < WORKERS_NUM; i++) {
+            worker_cores[i] = -1;
+        }
+    }
+
+    // ============================
 
     // I. Init packet pool.
     pktbuf_pool_t pool;
@@ -265,11 +328,20 @@ int main(int argc, char **argv) {
     // VII. Start workers
     worker_t *workers = calloc((size_t)WORKERS_NUM, sizeof(worker_t));
     for (int i = 0; i < WORKERS_NUM; i++) {
-        worker_init(&workers[i], i, &rings[i], &pool, &rt, &tx, &arpt, &ndpt);
+        worker_init(&workers[i], i, worker_cores[i], &rings[i], &pool, &rt, &tx, &arpt, &ndpt);
 
         if (worker_start(&workers[i]) != 0) {
             log_msg(LOG_ERROR, "worker_start(%d) failed", i);
             return 1;
+        }
+    }
+
+    // Pin RX thread (main thread)
+    if (rx_core >= 0) {
+        if (affinity_pin_self(rx_core) != 0) {
+            log_msg(LOG_WARN, "RX thread: failed to pin to core %d", rx_core);
+        } else {
+            log_msg(LOG_INFO, "RX thread: pinned to core %d", rx_core);
         }
     }
 
@@ -283,7 +355,8 @@ int main(int argc, char **argv) {
 
     // Start stats thread
     pthread_t stats_th;
-    stats_ctx_t stats_ctx = {.workers = workers, .num_workers = WORKERS_NUM, .rt = &rt};
+    stats_ctx_t stats_ctx = {
+        .workers = workers, .num_workers = WORKERS_NUM, .rt = &rt, .core_id = stats_core};
     pthread_create(&stats_th, NULL, stats_thread_func, &stats_ctx);
 
     rx_start(&rx);
