@@ -16,17 +16,29 @@ graph LR
 ## 1. Memory Management
 
 ### Design
-The goal is to minimize the lock contention when multiple threads are used.
+
+The memory pool uses a **lock-free** design to avoid mutex contention between threads.
 
 We use two-tier allocation strategy:
-*   **Global Pool**: A central, mutex-protected linked list of free buffers.
-*   **Thread-Local Cache (LIFO):** Each worker has its own private small cache (size 32) of buffers using `__thread` storage.
-    *   **Allocation**: Threads first check their local cache (lock-free, O(1)). If empty, they grab a burst of 16 buffers from the global pool.
-    *   **Deallocation**: Threads push to their local cache (lock-free, O(1)). When the cache is full, they flush 16 buffers back to the global pool.
+*   **Global Pool**: Lock-free array-based stack using atomic Compare-And-Swap (CAS) operations. No mutex.
+*   **Thread-Local Cache (LIFO):** Each thread (each worker) has a private cache of 64 buffer pointers using `_Thread_local` storage.
+    *   **Allocation**: Threads first check their local cache (no atomics). If empty, they grab 32 buffers from the global pool using atomic CAS.
+    *   **Deallocation**: Threads push to their local cache (no atomics). If cache is full, they flush 32 buffers back to the global pool via atomic CAS.
 
-### Key functions:
-*   **`pktbuf_pool_init`**: Pre-allocates all packet buffers upfront. This prevents OOM failures during packet processing.
-*   **`pktbuf_alloc` / `pktbuf_free`**: These are the only synchronization points. The global lock is acquired only during burst transfers.
+### Lock-Free Implementation
+
+The global pool uses `atomic_compare_exchange_weak_explicit` instead of mutexes:
+
+*   **Pop (refill)**: Atomically decrement `top`, then copy pointers from `free_stack[new_top..old_top]`.
+*   **Push (flush)**: Speculatively write pointers to `free_stack[old_top..]`, then atomically increment `top` via CAS. The write-before-CAS order is critical: if we incremented `top` first, another thread could pop from our reserved range before we finished writing the pointers.
+*   On success, using `memory_order_acq_rel` we can make sure that the buffer pointers are visible to other threads.
+*   On failure, we use `memory_order_acquire` to get the latest state.
+
+### Key functions
+
+*   **`pktbuf_pool_init`**: Pre-allocates all buffers in a single contignous block. Initializes the free stack with pointers to all buffers.
+*   **`pktbuf_alloc`**: Fast path returns buffers from the local cache. Slow path calls `global_pop_bulk` (atomic CAS).
+*   **`pktbuf_free`**: Fast path adds to local cache. Slow path calls  `global_push_bulk` (atomic CAS).
 
 ---
 

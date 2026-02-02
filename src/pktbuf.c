@@ -127,9 +127,6 @@ static void global_push_bulk(pktbuf_pool_t *pool, pktbuf_t **bufs, size_t count)
             pool->free_stack[old_top + i] = bufs[i];
         }
 
-        // Memory fence to make sure write complete before CAS.
-        atomic_thread_fence(memory_order_release);
-
     } while (!atomic_compare_exchange_weak_explicit(&pool->top,           // object
                                                     &old_top,             // expected
                                                     new_top,              // desired

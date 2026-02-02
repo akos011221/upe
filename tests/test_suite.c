@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -302,7 +303,7 @@ int test_pktbuf_pool(void) {
     pktbuf_pool_t pool;
     // Test 1) Initialize a small pool
     TEST_ASSERT(pktbuf_pool_init(&pool, 3) == 0);
-    TEST_ASSERT(pool.available == 3);
+    TEST_ASSERT(atomic_load(&pool.top) == 3);
 
     // Test 2) Allocate all buffers
     pktbuf_t *b1 = pktbuf_alloc(&pool);
@@ -318,7 +319,7 @@ int test_pktbuf_pool(void) {
     pktbuf_free(&pool, b2);
     // Because of thread-local caching, the freed buffer is returned to
     // the t_cache. Global pool is 0 until cache is flushed.
-    TEST_ASSERT(pool.available == 0);
+    TEST_ASSERT(atomic_load(&pool.top) == 0);
 
     pktbuf_t *b4 = pktbuf_alloc(&pool);
     TEST_ASSERT(b4 == b2); // Freed buffer should be at head at alloc.
