@@ -141,15 +141,15 @@ The assignment is **sequential** (consecutive cores starting from 0). This works
 ### Why This is Important
 
 **Cache Locality:**
-- Each CPU has private L1/L2 caches (32KB/256KB, 1-4ns latency)
-- When threads migrate between cores, caches go cold
-- Access after migration is from RAM (~100ns) instead of that ~1-4ns L1 access
+- Each CPU core has private L1/L2 caches (≈32KB / ≈256KB, ~1–5 ns access latency)
+- When threads migrate between cores, private caches (L1/L2) go cold
+- After migration, data is typically served from shared L3 (~10–20 ns), via cache-to-cache transfer from other core, or worst case from DRAM (~70-100 ns), instead of L1
 - With pinning we can keep the hot data (rule table, ARP cache, flow state) in L1/L2
 
 **NUMA on Multi-Socket Systems:**
-- Local memory access: ~80ns
-- Remote (cross-socket) memory access: ~140ns
-- We must keep threads on the same socket as their memory
+- Local NUMA node memory access: ~70–90 ns
+- Remote (cross-socket) NUMA memory access: typically ~120–160 ns
+- Binding threads to the same NUMA node as their memory help with the latency
 
 ### Implementation
 
