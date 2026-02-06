@@ -251,3 +251,34 @@ double benchmark_parse_double(const char *option_name) {
 
     return val;
 }
+
+/*
+    Variance Calculation.
+*/
+
+void benchmark_calculate_variance(const double *values, int count, double *mean, double *cv) {
+    if (count <= 0) {
+        *mean = 0.0;
+        *cv = 0.0;
+        return;
+    }
+
+    // Mean:
+    double sum = 0.0;
+    for (int i = 0; i < count; i++) {
+        sum += values[i];
+    }
+    *mean = sum / (double)count;
+
+    // Deviation:
+    double variance = 0.0;
+    for (int i = 0; i < count; i++) {
+        double diff = values[i] - *mean;
+        variance += diff * diff;
+    }
+    variance /= (double)count;
+    double stddev = sqrt(variance);
+
+    // Coefficient of variation:
+    *cv = (*mean != 0.0) ? (stddev / *mean) : 0.0;
+}

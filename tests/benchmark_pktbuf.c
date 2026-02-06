@@ -1,87 +1,106 @@
 /*
-    Benchmark Packet Buffer lock contention.
+    Measure the scalability of the lock-free packet buffer pool across multiple threads.
 
-    This benchmark measures the overhead of the memory pool's locking mechanism
-    when multiple threads accessing it in the same time.
+    Expected is to have near-line scaling (N threads = N * throughput). Thread-local cache should
+    satisfy most of the alloc/free requests, thus bypassing the global lock-free pool.
 
-    Relevance:
-    It was originally designed to see bottleneck of the shared global lock in the
-    packet buffer pool. Since then thread-local caching has been implemented, this
-    test now verifies that the contention is gone.
+    Usage:
+        # Defaul: 4 threads, 50M ops/thread, pool=64
+        ./benchmark_pktbuf
 
-    The scaling should be near-linear now (4x throughput with 4 threads).
-    It's because the benchmark keeps the cache in a "sweet spot" (it's neither empty
-    or full) => almost all packet alloc/free requests are satisfied by the thread-local
-    cache, bypassing the global mutex.
+        # Custom: 8 threads, 100M ops/thread, pool=4096, JSON out
+        ./benchmark_pktbuf --threads=8 --ops=100000000 --pool-size=4096 --json
+
+        # With warm-up
+        ./benchmark_pktbuf --threads=4 --warmup
 */
 
-#define _POSIX_C_SOURCE 199309L // clock_gettime
+#define _POSIX_C_SOURCE 199309L
+
+#include "benchmark.h"
 #include "pktbuf.h"
+
+#include <getopt.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <string.h>
 
-// Number of alloc/free pairs per thread
-#define OPS_PER_THREAD 50000000
+/*
+    Config.
+*/
 
-pktbuf_pool_t g_pool;
+typedef struct {
+    int num_threads;         // Number of worker threads.
+    size_t ops_per_thread;   // Alloc/free ops per thread.
+    size_t pool_capacity;    // Total buffers in global pool.
+    bool warmup;             // Enable warm-up phase.
+    bool json_output;        // Enable JSON output.
+    const char *output_file; // NULL = stdout, otherwise write to file.
+} bench_config_t;
 
-void *worker(void *arg) {
-    (void)arg;
-    for (int i = 0; i < OPS_PER_THREAD; i++) {
-        pktbuf_t *b = pktbuf_alloc(&g_pool);
+// Default config.
+static bench_config_t default_config(void) {
+    bench_config_t cfg;
+    cfg.num_threads = 4;
+    cfg.ops_per_thread = 50000000;
+    cfg.pool_capacity = 4096;
+    cfg.warmup = false;
+    cfg.json_output = false;
+    cfg.output_file = NULL;
+    return cfg;
+}
+
+// Per-thread context.
+typedef struct {
+    pktbuf_pool_t *pool;   // Shared pool.
+    size_t ops_to_perform; // What operation this thread should do.
+    int thread_id;
+
+    // Results after thread is done:
+    size_t ops_completed; // Op done (=ops_to_perform).
+    double duration_sec;  // Wall-clock time for the thread.
+    double ops_per_sec;
+} worker_ctx_t;
+
+/*
+    Worker thread func.
+*/
+
+static void *worker_thread(void *arg) {
+    worker_ctx_t *ctx = (worker_ctx_t *)arg;
+
+    double start = benchmark_get_time();
+
+    // Alloc buffer, simulate using its data, then free it.
+    for (size_t i = 0; i < ctx->ops_to_perform; i++) {
+        pktbuf_t *b = pktbuf_alloc(ctx->pool);
         if (b) {
-            pktbuf_free(&g_pool, b);
+            /*
+                Use 'volatile' to prevent the compiler from optimizing away this write.
+                Without it, the Dead Code Elimination(DCE) pass would see that the buffer is freed
+                immediately without being read, and skip the write entirely. This ensures the CPU
+                actually touches the memory, pulling it into the L1 cache.
+            */
+            volatile uint8_t *data = b->data;
+            data[0] = (uint8_t)(i & 0xFF);
+
+            pktbuf_free(ctx->pool, b);
+            ctx->ops_completed++;
+        } else {
+            // Pool exhausted.
+            // Should be: (pool_capacity >= num_threads * LOCAL_CACHE_SIZE).
+            fprintf(stderr,
+                    "WARNING: Thread %d: pktbuf_alloc() returned NULL "
+                    "(pool exhausted)\n",
+                    ctx->thread_id);
         }
     }
+
+    double end = benchmark_get_time();
+    ctx->duration_sec = end - start;
+    ctx->ops_per_sec = (double)ctx->ops_completed / ctx->duration_sec;
+
     return NULL;
-}
-
-double run_benchmark(int num_threads) {
-    pthread_t *threads = malloc(sizeof(pthread_t) * (size_t)num_threads);
-
-    // Overprovision the pool to avoid starvation due to scheduling skew.
-    // 16 buffers per thread is a conservative burst depth.
-    pktbuf_pool_init(&g_pool, (size_t)(num_threads * 16));
-
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    for (int i = 0; i < num_threads; i++) {
-        pthread_create(&threads[i], NULL, worker, NULL);
-    }
-
-    for (int i = 0; i < num_threads; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    clock_gettime(CLOCK_MONOTONIC, &end);
-
-    pktbuf_pool_destroy(&g_pool);
-    free(threads);
-
-    double seconds =
-        (double)(end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
-    return seconds;
-}
-
-int main(void) {
-    printf("=-> Packet Buffer Lock Contention Benchmark <-=\n");
-
-    // 1) Baseline: Single Thread
-    double t1 = run_benchmark(1);
-    double ops1 = OPS_PER_THREAD / t1;
-    printf("1 Thread:   %8.0f ops/sec (%.4f s)\n", ops1, t1);
-
-    // 2) Contention: 4 Threads
-    // Total operations = 4 * OPS_PER_THREAD
-    double t4 = run_benchmark(4);
-    double ops4 = (4 * OPS_PER_THREAD) / t4;
-    printf("4 Threads:  %8.0f ops/sec (%.4f s)\n", ops4, t4);
-
-    // 3) Analysis
-    printf("-----------------------------------------------\n");
-    printf("Scaling Factor: %.2fx (Ideal: 4.00x)\n", ops4 / ops1);
-    return 0;
 }
