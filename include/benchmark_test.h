@@ -1,5 +1,5 @@
-#ifndef BENCHMARK_H
-#define BENCHMARK_H
+#ifndef BENCHMARK_TEST_H
+#define BENCHMARK_TEST_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,7 +35,7 @@ void json_init(json_ctx_t *ctx, FILE *out);
 void json_begin_object(json_ctx_t *ctx); // Prints '{'
 void json_end_object(json_ctx_t *ctx);   // Prints '}'
 void json_key_string(json_ctx_t *ctx, const char *key, const char *value);
-void json_key_int(json_ctx_t *ctx, const char *key, int value);
+void json_key_int(json_ctx_t *ctx, const char *key, int64_t value);
 void json_key_double(json_ctx_t *ctx, const char *key, double value);
 void json_key_bool(json_ctx_t *ctx, const char *key, bool value);
 void json_begin_nested_object(json_ctx_t *ctx, const char *key);

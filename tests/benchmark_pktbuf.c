@@ -17,7 +17,7 @@
 
 #define _POSIX_C_SOURCE 199309L
 
-#include "benchmark.h"
+#include "benchmark_test.h"
 #include "pktbuf.h"
 
 #include <getopt.h>
@@ -65,11 +65,12 @@ typedef struct {
 } worker_ctx_t;
 
 /*
-    Worker thread func.
+    Worker thread function.
 */
 
 static void *worker_thread(void *arg) {
     worker_ctx_t *ctx = (worker_ctx_t *)arg;
+    size_t completed = 0; // Local variable in CPU register to avoid sharing.
 
     double start = benchmark_get_time();
 
@@ -87,7 +88,7 @@ static void *worker_thread(void *arg) {
             data[0] = (uint8_t)(i & 0xFF);
 
             pktbuf_free(ctx->pool, b);
-            ctx->ops_completed++;
+            completed++;
         } else {
             // Pool exhausted.
             // Should be: (pool_capacity >= num_threads * LOCAL_CACHE_SIZE).
@@ -99,6 +100,7 @@ static void *worker_thread(void *arg) {
     }
 
     double end = benchmark_get_time();
+    ctx->ops_completed = completed;
     ctx->duration_sec = end - start;
     ctx->ops_per_sec = (double)ctx->ops_completed / ctx->duration_sec;
 
@@ -106,7 +108,7 @@ static void *worker_thread(void *arg) {
 }
 
 /*
-    Warm-up.
+    Warm-up function.
 
     Populate the CPU caches and train branch predictor.
     Runs each thread for ~1s.
@@ -148,7 +150,7 @@ static void warmup_phase(pktbuf_pool_t *pool, int num_threads) {
     printf("Warm-up done.\n");
 }
 
-// Benchmark running.
+// Benchmark run functions.
 
 typedef struct {
     double total_duration_sec; // Wall-clock time (longest thread).
@@ -166,7 +168,7 @@ static benchmark_result_t run_benchmark(const bench_config_t *cfg) {
     pktbuf_pool_init(&pool, cfg->pool_capacity);
 
     if (cfg->warmup) {
-        warmup_phase(&pool, &cfg->num_threads);
+        warmup_phase(&pool, cfg->num_threads);
     }
 
     pthread_t *threads = malloc(sizeof(pthread_t) * (size_t)cfg->num_threads);
@@ -217,4 +219,210 @@ static benchmark_result_t run_benchmark(const bench_config_t *cfg) {
     pktbuf_pool_destroy(&pool);
 
     return result;
+}
+
+/*
+    Output functions.
+*/
+
+static void output_human(const bench_config_t *cfg, const benchmark_result_t *single,
+                         const benchmark_result_t *multi, double overhead_ns) {
+    printf("=-> Packet Buffer Contention Benchmark <-=\n");
+
+    printf("Settings:\n");
+    printf("    Threads:    %d\n", cfg->num_threads);
+    printf("    Ops/Thread: %zu\n", cfg->ops_per_thread);
+    printf("    Pool Size:  %zu buffers\n", cfg->pool_capacity);
+    printf("    Warm-up:    %s\n", cfg->warmup ? "Yes" : "No");
+    printf("    Timing overhead   %.1f ns\n\n", overhead_ns);
+
+    printf("Results:\n");
+    printf("    Single Thread:\n");
+    printf("    Throughput: %.2f M ops/sec\n", single->total_ops_per_sec / 1e6);
+    printf("    Duration:   %.4f s\n", single->total_duration_sec);
+    printf("    Load balance (CV): %.4f (%.1f%%)\n", multi->cv, multi->cv * 100.0);
+    printf("\n");
+
+    double scaling_factor = multi->total_ops_per_sec / single->total_ops_per_sec;
+    double efficiency = (scaling_factor / (double)cfg->num_threads) * 100.0;
+
+    printf("Analysis:\n");
+    printf("    Scaling factor: %.2fx (Ideal: %.2fx)\n", scaling_factor, (double)cfg->num_threads);
+    printf("    Efficiency:     %.2f%%\n", efficiency);
+
+    if (efficiency >= 90.0) {
+        printf("    Excellent scaling.\n");
+    } else if (efficiency >= 70.0) {
+        printf("    Good scaling.\n");
+    } else {
+        printf("    Poor scaling.\n");
+    }
+}
+
+static void output_json(const bench_config_t *cfg, const benchmark_result_t *single,
+                        const benchmark_result_t *multi, double overhead_ns, FILE *out) {
+    system_info_t sysinfo;
+    benchmark_get_system_info(&sysinfo);
+
+    json_ctx_t ctx;
+    json_init(&ctx, out);
+
+    json_begin_object(&ctx);
+
+    json_key_string(&ctx, "benchmark", "pktbuf_contention");
+
+    // System info.
+    json_begin_nested_object(&ctx, "system_info");
+    json_key_string(&ctx, "cpu_model", sysinfo.cpu_model);
+    json_key_int(&ctx, "num_cores", sysinfo.num_cores);
+    json_key_int(&ctx, "l1d_cache_kb", sysinfo.l1d_cache_kb);
+    json_key_int(&ctx, "l2_cache_kb", sysinfo.l2_cache_kb);
+    json_key_int(&ctx, "l3_cache_kb", sysinfo.l3_cache_kb);
+    json_key_int(&ctx, "numa_nodes", sysinfo.numa_nodes);
+    json_end_object(&ctx);
+
+    // Config.
+    json_begin_nested_object(&ctx, "config");
+    json_key_int(&ctx, "num_threads", cfg->num_threads);
+    json_key_int(&ctx, "ops_per_thread", (int64_t)cfg->ops_per_thread);
+    json_key_int(&ctx, "pool_capacity", (int64_t)cfg->pool_capacity);
+    json_key_bool(&ctx, "warmup", cfg->warmup);
+    json_end_object(&ctx);
+
+    // Results.
+    json_begin_nested_object(&ctx, "results");
+
+    json_begin_nested_object(&ctx, "single_thread");
+    json_key_double(&ctx, "ops_per_sec", single->total_ops_per_sec);
+    json_key_double(&ctx, "duration_sec", single->total_duration_sec);
+    json_end_object(&ctx);
+
+    json_begin_nested_object(&ctx, "multi_thread");
+    json_key_int(&ctx, "threads", cfg->num_threads);
+    json_key_double(&ctx, "ops_per_sec", multi->total_ops_per_sec);
+    json_key_double(&ctx, "duration_sec", multi->total_duration_sec);
+    json_key_double(&ctx, "mean_thread_ops_per_sec", multi->mean_thread_tput);
+    json_key_double(&ctx, "coefficient_of_variation", multi->cv);
+
+    double scaling_factor = multi->total_ops_per_sec / single->total_ops_per_sec;
+    json_key_double(&ctx, "scaling_factor", scaling_factor);
+    json_key_double(&ctx, "efficiency_percent",
+                    (scaling_factor / (double)cfg->num_threads) * 100.0);
+    json_end_object(&ctx);
+
+    json_key_double(&ctx, "measurement_overhead_ns", overhead_ns);
+
+    json_end_object(&ctx); // Results.
+
+    json_end_object(&ctx); // Root.
+    fprintf(out, "\n");
+}
+
+/*
+    Main.
+*/
+
+static void print_usage(const char *prog) {
+    printf("Usage: %s [OPTIONS]\n\n", prog);
+    printf("Options:\n");
+    printf("    -t, --threads=N     Number of threads (default: 4)\n");
+    printf("    -n, --ops=N         Operations per thread (default: 50000000)\n");
+    printf("    -p, --pool-size=N   Pool capacity (default: 4096)\n");
+    printf("    -w, --warmup        Enable warm-up-phase\n");
+    printf("    -j, --json          Output JSON format\n");
+    printf("    -o, --output-FILE   Write to file instead of stdout\n");
+    printf("    -h, --help          Show this help\n\n");
+    printf("Examples:\n");
+    printf("    %s --threads=8 --ops=100000000\n", prog);
+    printf("    %s --threads=4  --warmup --json > out.json\n", prog);
+}
+
+int main(int argc, char **argv) {
+    bench_config_t cfg = default_config();
+
+    static struct option long_options[] = {{"threads", required_argument, NULL, 't'},
+                                           {"ops", required_argument, NULL, 'n'},
+                                           {"pool-size", required_argument, NULL, 'p'},
+                                           {"warmup", no_argument, NULL, 'w'},
+                                           {"json", no_argument, NULL, 'j'},
+                                           {"output", required_argument, NULL, 'o'},
+                                           {"help", no_argument, NULL, 'h'},
+                                           {NULL, 0, NULL, 0}
+
+    };
+
+    int opt;
+    while ((opt = getopt_long(argc, argv, "t:n:p:wjo:h", long_options, NULL)) != -1) {
+        switch (opt) {
+        case 't':
+            cfg.num_threads = benchmark_parse_int("threads");
+            if (cfg.num_threads <= 0) {
+                fprintf(stderr, "Error: threads must be > 0\n");
+                return EXIT_FAILURE;
+            }
+            break;
+        case 'n':
+            cfg.ops_per_thread = benchmark_parse_size_t("ops");
+            if (cfg.ops_per_thread == 0) {
+                fprintf(stderr, "Error: ops must be > 0\n");
+                return EXIT_FAILURE;
+            }
+            break;
+        case 'p':
+            cfg.pool_capacity = benchmark_parse_size_t("pool-size");
+            if (cfg.pool_capacity == 0) {
+                fprintf(stderr, "Error: pool-size must be > 0\n");
+                return EXIT_FAILURE;
+            }
+            break;
+        case 'w':
+            cfg.warmup = true;
+            break;
+        case 'j':
+            cfg.json_output = true;
+            break;
+        case 'o':
+            cfg.output_file = optarg;
+            break;
+        case 'h':
+            print_usage(argv[0]);
+            return EXIT_SUCCESS;
+        default:
+            print_usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+    }
+
+    // Measure timing overhead.
+    double overhead_ns = benchmark_measure_timing_overhead();
+
+    // Single-threaded baseline.
+    bench_config_t single_cfg = cfg;
+    single_cfg.num_threads = 1;
+    benchmark_result_t single = run_benchmark(&single_cfg);
+
+    // Multi-threaded test.
+    benchmark_result_t multi = run_benchmark(&cfg);
+
+    // Output.
+    FILE *out = stdout;
+    if (cfg.output_file) {
+        out = fopen(cfg.output_file, "w");
+        if (!out) {
+            perror("fopen");
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (cfg.json_output) {
+        output_json(&cfg, &single, &multi, overhead_ns, out);
+    } else {
+        output_human(&cfg, &single, &multi, overhead_ns);
+    }
+
+    if (cfg.output_file) {
+        fclose(out);
+    }
+
+    return EXIT_SUCCESS;
 }

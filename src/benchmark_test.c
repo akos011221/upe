@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
 
-#include "benchmark.h"
+#include "benchmark_test.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -55,21 +55,27 @@ void benchmark_get_system_info(system_info_t *info) {
     // L1 data cache (index0).
     f = fopen("/sys/devices/system/cpu/cpu0/cache/index0/size", "r");
     if (f) {
-        fscanf(f, "%dK", &info->l1d_cache_kb);
+        if (fscanf(f, "%dK", &info->l1d_cache_kb) != 1) {
+            info->l1d_cache_kb = 0;
+        }
         fclose(f);
     }
 
     // L2 cache (index2).
     f = fopen("/sys/devices/system/cpu/cpu0/cache/index2/size", "r");
     if (f) {
-        fscanf(f, "%dK", &info->l2_cache_kb);
+        if (fscanf(f, "%dK", &info->l2_cache_kb) != 1) {
+            info->l2_cache_kb = 0;
+        }
         fclose(f);
     }
 
     // L3 cache (index3).
     f = fopen("/sys/devices/system/cpu/cpu0/cache/index3/size", "r");
     if (f) {
-        fscanf(f, "%dK", &info->l3_cache_kb);
+        if (fscanf(f, "%dK", &info->l3_cache_kb) != 1) {
+            info->l3_cache_kb = 0;
+        }
         fclose(f);
     }
 
@@ -83,7 +89,7 @@ void benchmark_get_system_info(system_info_t *info) {
         if (access(path, F_OK) != 0) {
             break;
         }
-        numa_count;
+        numa_count++;
     }
 
     info->numa_nodes = numa_count > 0 ? numa_count : 1;
@@ -159,7 +165,7 @@ void json_key_bool(json_ctx_t *ctx, const char *key, bool value) {
     ctx->needs_comma = true;
 }
 
-void json_being_nested_object(json_ctx_t *ctx, const char *key) {
+void json_begin_nested_object(json_ctx_t *ctx, const char *key) {
     if (ctx->needs_comma) {
         fprintf(ctx->out, ",\n");
     }
