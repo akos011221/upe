@@ -5,7 +5,7 @@
     satisfy most of the alloc/free requests, thus bypassing the global lock-free pool.
 
     Usage:
-        # Defaul: 4 threads, 50M ops/thread, pool=64
+        # Defaul: 4 threads, 50M ops/thread, pool=4096
         ./benchmark_pktbuf
 
         # Custom: 8 threads, 100M ops/thread, pool=4096, JSON out
@@ -55,7 +55,7 @@ static bench_config_t default_config(void) {
 // Per-thread context.
 typedef struct {
     pktbuf_pool_t *pool;   // Shared pool.
-    size_t ops_to_perform; // What operation this thread should do.
+    size_t ops_to_perform; // How many ops this thread should do.
     int thread_id;
 
     // Results after thread is done:
@@ -103,4 +103,118 @@ static void *worker_thread(void *arg) {
     ctx->ops_per_sec = (double)ctx->ops_completed / ctx->duration_sec;
 
     return NULL;
+}
+
+/*
+    Warm-up.
+
+    Populate the CPU caches and train branch predictor.
+    Runs each thread for ~1s.
+
+    - Populate L1/L2/L3 caches with pool metadata
+    - Train branch predictor for alloc/free code paths
+    - Fills TLBs (translation lookaside buffers) with page mappings
+
+    Why?
+    - First iteration: cache cold = bigger latency
+    - Steady state: cache warm = much lower latency
+    - We only care about steady state.
+*/
+static void warmup_phase(pktbuf_pool_t *pool, int num_threads) {
+    printf("Warming up (%d threads)...\n", num_threads);
+
+    pthread_t *threads = malloc(sizeof(pthread_t) * (size_t)num_threads);
+    worker_ctx_t *contexts = malloc(sizeof(worker_ctx_t) * (size_t)num_threads);
+
+    // Run warm-up for 1 million ops per thread.
+    size_t warmup_ops = 1000000;
+
+    for (int i = 0; i < num_threads; i++) {
+        contexts[i].pool = pool;
+        contexts[i].ops_to_perform = warmup_ops;
+        contexts[i].thread_id = i;
+        contexts[i].ops_completed = 0;
+
+        pthread_create(&threads[i], NULL, worker_thread, &contexts[i]);
+    }
+
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    free(threads);
+    free(contexts);
+
+    printf("Warm-up done.\n");
+}
+
+// Benchmark running.
+
+typedef struct {
+    double total_duration_sec; // Wall-clock time (longest thread).
+    double total_ops_per_sec;  // Total throughput across all threads.
+    double mean_thread_tput;   // Mean per-thread throughput.
+    double cv;                 // Coefficient of variation (load balance).
+} benchmark_result_t;
+
+static benchmark_result_t run_benchmark(const bench_config_t *cfg) {
+    // Pool sizing must be:
+    // LOCAL_CACHE_SIZE(64) * num_threads with headroom.
+    // Headroom, because there can be imbalance, some threads allocate more,
+    // than others.
+    pktbuf_pool_t pool;
+    pktbuf_pool_init(&pool, cfg->pool_capacity);
+
+    if (cfg->warmup) {
+        warmup_phase(&pool, &cfg->num_threads);
+    }
+
+    pthread_t *threads = malloc(sizeof(pthread_t) * (size_t)cfg->num_threads);
+    worker_ctx_t *contexts = malloc(sizeof(worker_ctx_t) * (size_t)cfg->num_threads);
+
+    for (int i = 0; i < cfg->num_threads; i++) {
+        contexts[i].pool = &pool;
+        contexts[i].ops_to_perform = cfg->ops_per_thread;
+        contexts[i].thread_id = i;
+        contexts[i].ops_completed = 0;
+        contexts[i].duration_sec = 0.0;
+        contexts[i].ops_per_sec = 0.0;
+    }
+
+    double start = benchmark_get_time();
+
+    for (int i = 0; i < cfg->num_threads; i++) {
+        pthread_create(&threads[i], NULL, worker_thread, &contexts[i]);
+    }
+
+    for (int i = 0; i < cfg->num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    double end = benchmark_get_time();
+
+    // Results.
+    benchmark_result_t result;
+    result.total_duration_sec = end - start;
+
+    size_t total_ops = 0;
+    double *thread_tputs = malloc(sizeof(double) * (size_t)cfg->num_threads);
+
+    for (int i = 0; i < cfg->num_threads; i++) {
+        total_ops += contexts[i].ops_completed;
+        thread_tputs[i] = contexts[i].ops_per_sec;
+    }
+
+    result.total_ops_per_sec = (double)total_ops / result.total_duration_sec;
+
+    benchmark_calculate_variance(thread_tputs, cfg->num_threads, &result.mean_thread_tput,
+                                 &result.cv);
+
+    // Cleanup.
+    free(thread_tputs);
+    free(threads);
+    free(contexts);
+    pktbuf_pool_destroy(&pool);
+
+    return result;
 }
