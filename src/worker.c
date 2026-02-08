@@ -204,10 +204,10 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
 
         // Forward out on TX interface the raw L2 frame (as captured).
         if (tx_send(w->tx, b->data, b->len) != 0) {
-            w->pkts_forwarded++;
+            w->pkts_dropped++;
         } else {
             // TX failed => can be considered dropped.
-            w->pkts_dropped++;
+            w->pkts_forwarded++;
         }
 
         pktbuf_free(w->pool, b);
