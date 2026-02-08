@@ -3,20 +3,7 @@
 
     This benchmark measures the maximum processing speed of UPE. It removes the network hardware
     from the picture by creating a __Synthetic NIC__ (main thread) that generates packets in memory
-    and pushes them into SPS ring buffers.
-
-    The __Synthetic NIC__ aka the Producer:
-        1) Allocates buffer from the pool
-        2) Fills it with dummy TCP/IP data
-        3) Pushes into the ring buffer
-        4) Repeats this for --duration seconds
-
-    The Worker aka the Consumer:
-        1) Pops the packets from the its SPSC ring
-        2) Parses them
-        3) Matches them against rule table
-        4) Drops them
-        5) Frees the buffer back to the pool
+    and pushes them into SPSC ring buffers.
 */
 
 #define _POSIX_C_SOURCE 200809L

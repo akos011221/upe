@@ -3,16 +3,6 @@
 
     Expected is to have near-line scaling (N threads = N * throughput). Thread-local cache should
     satisfy most of the alloc/free requests, thus bypassing the global lock-free pool.
-
-    Usage:
-        # Defaul: 4 threads, 50M ops/thread, pool=4096
-        ./benchmark_pktbuf
-
-        # Custom: 8 threads, 100M ops/thread, pool=4096, JSON out
-        ./benchmark_pktbuf --threads=8 --ops=100000000 --pool-size=4096 --json
-
-        # With warm-up
-        ./benchmark_pktbuf --threads=4 --warmup
 */
 
 #define _POSIX_C_SOURCE 199309L
