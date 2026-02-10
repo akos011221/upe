@@ -1,5 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include "log.h"
 #include "tx.h"
 
@@ -50,7 +49,7 @@ int tx_init(tx_ctx_t *tx, const char *out_iface) {
 int tx_send(const tx_ctx_t *tx, const uint8_t *frame, size_t len) {
     if (!tx || tx->sock_fd < 0 || !frame || len == 0) return -1;
 
-    // Link layer address setup.
+    /* Link layer setup. */
     struct sockaddr_ll addr;
     memset(&addr, 0, sizeof(addr));
     addr.sll_family = AF_PACKET;
@@ -63,6 +62,48 @@ int tx_send(const tx_ctx_t *tx, const uint8_t *frame, size_t len) {
         return -1;
     }
     return 0;
+}
+
+int tx_send_batch(const tx_ctx_t *tx, const uint8_t *const *frames, const size_t *lens, int count) {
+    if (!tx || tx->sock_fd < 0 || !frames || !lens || count <= 0) {
+        return 0;
+    }
+
+    if (count > TX_BATCH_MAX) {
+        count = TX_BATCH_MAX;
+    }
+
+    /* Single sockaddr_ll reused for all packets in batch. */
+    struct sockaddr_ll addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sll_family = AF_PACKET;
+    addr.sll_ifindex = tx->ifindex;
+    addr.sll_halen = ETH_ALEN;
+
+    struct iovec iovecs[TX_BATCH_MAX]; /* Scatter/gather buffers */
+    struct mmsghdr msgs[TX_BATCH_MAX]; /* Batch of messages for sendmmsg */
+    memset(msgs, 0, sizeof(struct mmsghdr) * (size_t)count);
+
+    for (int i = 0; i < count; i++) {
+        /* Cast away const from frames[i] so we can assign to iov_base.
+         * iovec uses void* (not const void*). */
+        iovecs[i].iov_base = (void *)frames[i];
+        iovecs[i].iov_len = lens[i]; /* Buffer length */
+
+        msgs[i].msg_hdr.msg_name = &addr; /* Destination (same for all) */
+        msgs[i].msg_hdr.msg_namelen = sizeof(addr);
+        msgs[i].msg_hdr.msg_iov = &iovecs[i]; /* Buffer array */
+        msgs[i].msg_hdr.msg_iovlen = 1;       /* Single buffer per message */
+    }
+
+    int sent = sendmmsg(tx->sock_fd, msgs, (unsigned int)count, 0);
+
+    if (sent < 0) {
+        log_msg(LOG_WARN, "sendmmsg failed: %s", strerror(errno));
+        return 0;
+    }
+
+    return sent;
 }
 
 void tx_close(tx_ctx_t *tx) {
