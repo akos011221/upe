@@ -50,7 +50,7 @@ To decouple the RX thread (I/O) from the Workers (CPU), we use **Single-Producer
 *   **Topology:** 1 RX Thread feeds $N$ Workers via $N$ distinct rings.
 *   **Data Transfer:** Only the 8-byte pointer (`pktbuf_t*`) is passed through the ring. The packet data stays in the pre-allocated buffer.
 *   **Software RSS:** The RX thread calculates a symmetric 5-tuple hash (SrcIP, DstIP, SrcPort, DstPort,, Proto) to pick the destination ring. This ensures bidirectional flows (c2s and s2c) always land on the same worker.
-*   **Burst Processing:** 
+*   **Burst Processing:**
     *   RX maintains per-ring staging buffers (size 32) that accumulate packets.
     *   When a buffer fills or pcap times out (1ms), packets are flushed via `ring_push_burst`.
     *   Workers dequeue packets in batches using `ring_pop_burst` (up to 32 at a time).
@@ -97,7 +97,9 @@ Workers implement the data plane. They're designed to be as independent as possi
     *   Parse the 5-tuple.
     *   Match against rules.
     *   For forwarded packets: decrement TTL/hop-limit, update checksums, rewrite MAC and addresses, then transmit.
-*   3. Sleeps for 1μs if the ring is empty so the CPU is not spinning.
+    *   Dropped/consumed packets are freed right away.
+    3. Flush TX batch: Accumulated frames are sent in a single sendmmsg() syscall.
+*   4. Sleeps for 1μs if the ring is empty so the CPU is not spinning.
 
 **Stats:** Counters are incremented without atomics since each worker has private memory. Stats thread aggregates them periodically.
 
@@ -158,7 +160,7 @@ Threads pin themselves immediately on startup so that all memory initialization 
 ```c
 static void *worker_main(void *arg) {
     worker_t *w = (worker_t *)arg;
-    
+
     if (w->core_id >= 0) {
         affinity_pin_self(w->core_id);
     }
