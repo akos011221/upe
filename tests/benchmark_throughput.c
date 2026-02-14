@@ -27,12 +27,18 @@
 
 volatile sig_atomic_t g_stop = 0;
 
-// Dummy implementation of tx_send for worker:
+/* Dummy implementation of tx_send and tx_send_batch for worker: */
 int tx_send(const tx_ctx_t *tx, const uint8_t *frame, size_t len) {
     (void)tx;
     (void)frame;
     (void)len;
     return 0;
+}
+int tx_send_batch(const tx_ctx_t *tx, const uint8_t *const *frames, const size_t *lens, int count) {
+    (void)tx;
+    (void)frames;
+    (void)lens;
+    return count;
 }
 
 #define MAX_BATCH_SIZE 256
@@ -257,7 +263,7 @@ static void output_human(const bench_config_t *cfg, const bench_result_t *res, d
     printf("    Warm-up:     %s\n", cfg->warmup ? "Yes" : "No");
     printf("    Timing overhead: %.1f ns\n\n", overhead_ns);
 
-    printf("Procuder:\n");
+    printf("Producer:\n");
     printf("    Packets Pushed: %lu\n", (unsigned long)res->producer.packets_pushed);
     printf("    Throughput:   %.2f Mpps\n", push_mpps);
     printf("    Ring Full Events: %lu\n\n", (unsigned long)res->producer.ring_full_events);
@@ -341,7 +347,6 @@ static void output_json(const bench_config_t *cfg, const bench_result_t *res, do
     uint64_t total_consumed = 0;
     for (int i = 0; i < cfg->num_workers; i++) {
         total_consumed += res->per_worker_pkts[i];
-        ;
     }
 
     json_key_int(&ctx, "total_packets_processed", (int64_t)total_consumed);
