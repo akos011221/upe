@@ -18,6 +18,7 @@ add_executable(upe
   src/arp_table.c
   src/ndp_table.c
   src/affinity.c
+  src/rule_config.c
 )
 
 target_include_directories(upe PRIVATE include)
