@@ -69,4 +69,11 @@ const rule_t *rule_table_match(const rule_table_t *t, const flow_key_t *k);
 */
 bool ipv4_mask_from_prefix(uint8_t prefix_len, uint32_t *out_mask);
 
+/*
+    Helper to build a 128-bit IPv6 prefix mask (e.g. 48 -> ff:ff:ff:ff:ff:ff:00:...).
+        Returns false if prefix is invalid (e.g. >128),
+        otherwise writes the mask to out_mask and returns true.
+*/
+bool ipv6_mask_from_prefix(uint8_t prefix_len, uint8_t out_mask[16]);
+
 #endif

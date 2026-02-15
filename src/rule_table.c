@@ -1,6 +1,7 @@
 #include "rule_table.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 /*
     Helper to create 32-bit mask from prefix length
@@ -25,6 +26,36 @@ bool ipv4_mask_from_prefix(uint8_t prefix_len, uint32_t *out_mask) {
     }
 
     *out_mask = (uint32_t)(0xffffffffu << (32 - prefix_len));
+    return true;
+}
+
+bool ipv6_mask_from_prefix(uint8_t prefix_len, uint8_t out_mask[16]) {
+    if (!out_mask) return false;
+    if (prefix_len > 128) return false;
+
+    memset(out_mask, 0, 16);
+
+    uint8_t full_bytes = prefix_len / 8;
+    uint8_t remaining_bits = prefix_len % 8;
+
+    for (uint8_t i = 0; i < full_bytes; i++) {
+        out_mask[i] = 0xff;
+    }
+
+    if (remaining_bits > 0 && full_bytes < 16) {
+        out_mask[full_bytes] = (uint8_t)(0xff << (8 - remaining_bits));
+    }
+
+    return true;
+}
+
+static inline bool match_ipv6(const uint8_t pkt_ip[16], const uint8_t rule_ip[16],
+                              const uint8_t mask[16]) {
+    for (int i = 0; i < 16; i++) {
+        if ((pkt_ip[i] & mask[i]) != (rule_ip[i] & mask[i])) {
+            return false;
+        }
+    }
     return true;
 }
 
