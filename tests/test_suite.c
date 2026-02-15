@@ -436,6 +436,76 @@ int test_ndp_table(void) {
     return 0;
 }
 
+// --- IPv6 Rule Matching related tests ---
+int test_ipv6_rule_matching(void) {
+    rule_table_t rt;
+    TEST_ASSERT(rule_table_init(&rt, 10) == 0);
+
+    // Rule: match src 2001:db8::/32; forward.
+    rule_t r1;
+    memset(&r1, 0, sizeof(r1));
+    r1.priority = 100;
+    r1.ip_ver = 6;
+    uint8_t src_mask[16];
+    ipv6_mask_from_prefix(32, src_mask);
+    uint8_t rule_src[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    memcpy(r1.src_ip.v6, rule_src, 16);
+    memcpy(r1.src_mask.v6, src_mask, 16);
+    r1.action.type = ACT_FWD;
+    r1.action.out_ifindex = 1;
+    rule_table_add(&rt, &r1);
+
+    // Default deny drop.
+    rule_t r2;
+    memset(&r2, 0, sizeof(r2));
+    r2.priority = 99999;
+    r2.action.type = ACT_DROP;
+    rule_table_add(&rt, &r2);
+
+    // Test 1) IPv6 packet match the FWD rule.
+    flow_key_t k1;
+    memset(&k1, 0, sizeof(k1));
+    k1.ip_ver = 6;
+    k1.protocol = 6;
+    uint8_t pkt_src1[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    memcpy(k1.src_ip.v6, pkt_src1, 16);
+    const rule_t *match = rule_table_match(&rt, &k1);
+    TEST_ASSERT(match != NULL);
+    TEST_ASSERT(match->action.type == ACT_FWD);
+
+    // Test 2) IPv6 packet doesn't match the FWD rule.
+    flow_key_t k2;
+    memset(&k2, 0, sizeof(k2));
+    k2.ip_ver = 6;
+    k2.protocol = 6;
+    uint8_t pkt_src2[16] = {0x20, 0x80, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    memcpy(k2.src_ip.v6, pkt_src2, 16);
+    match = rule_table_match(&rt, &k2);
+    TEST_ASSERT(match != NULL);
+    TEST_ASSERT(match->action.type == ACT_DROP);
+
+    // Test 3) ipv6_mask_from_prefix edge cases.
+    uint8_t mask[16];
+    TEST_ASSERT(ipv6_mask_from_prefix(0, mask) == true);
+    for (int i = 0; i < 16; i++) {
+        TEST_ASSERT(mask[i] == 0);
+    }
+
+    TEST_ASSERT(ipv6_mask_from_prefix(128, mask) == true);
+    for (int i = 0; i < 16; i++) {
+        TEST_ASSERT(mask[i] == 0xff);
+    }
+
+    TEST_ASSERT(ipv6_mask_from_prefix(129, mask) == false);
+
+    TEST_ASSERT(ipv6_mask_from_prefix(1, mask) == true);
+    TEST_ASSERT(mask[0] == 0x80);
+    TEST_ASSERT(mask[1] == 0);
+
+    rule_table_destroy(&rt);
+    return 0;
+}
+
 int main(void) {
     printf("=-> UPE Component Tests <-=\n");
     RUN_TEST(test_ring_buffer);
@@ -448,5 +518,6 @@ int main(void) {
     RUN_TEST(test_pktbuf_pool);
     RUN_TEST(test_arp_table);
     RUN_TEST(test_ndp_table);
+    RUN_TEST(test_ipv6_rule_matching);
     return 0;
 }
