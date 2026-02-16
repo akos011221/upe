@@ -14,6 +14,7 @@
 #include "ndp_table.h"
 #include "pktbuf.h"
 #include "ring.h"
+#include "rule_config.h"
 #include "rule_table.h"
 #include "rx.h"
 #include "tx.h"
@@ -52,6 +53,7 @@ static void usage(const char *prog) {
             "Usage: %s [--iface <name> | --pcap <file>] [--verbose <0..2>] [--duration <sec>]\n"
             "\n"
             "  --iface     Network interface name (e.g., eth0)\n"
+            "  --rules     Rule config file (INI format).\n"
             "  --pcap      PCAP file to read from (offline mode)\n"
             "  --verbose   0=warn+error, 1=info (default), 2=debug\n"
             "  --duration  Run time in seconds (0 = forever, default 0)\n",
@@ -73,6 +75,7 @@ static int parse_int(const char *s, int *out) {
 
 static int parse_args(int argc, char **argv, upe_config_t *cfg) {
     cfg->iface = NULL;
+    cfg->rules_file = NULL;
     cfg->pcap_file = NULL;
     cfg->verbose = 1;
     cfg->duration_sec = 0;
@@ -83,6 +86,9 @@ static int parse_args(int argc, char **argv, upe_config_t *cfg) {
         if (strcmp(arg, "--iface") == 0) {
             if (i + 1 >= argc) return -1;
             cfg->iface = argv[++i];
+        } else if (strcmp(arg, "--rules") == 0) {
+            if (i + 1 >= argc) return -1;
+            cfg->rules_file = argv[++i];
         } else if (strcmp(arg, "--pcap") == 0) {
             if (i + 1 >= argc) return -1;
             cfg->pcap_file = argv[++i];
@@ -117,43 +123,6 @@ static log_level_t verbosity_to_level(int verbose) {
     if (verbose <= 0) return LOG_WARN;
     if (verbose == 1) return LOG_INFO;
     return LOG_DEBUG;
-}
-
-static void install_demo_flows(rule_table_t *rt) {
-    /*
-        Seed the flow table with some demo flows.
-    */
-
-    // Drop TCP 22 with the highest priority
-    rule_t r1;
-    memset(&r1, 0, sizeof(r1));
-    r1.priority = 10;
-    r1.protocol = 6;
-    r1.dst_port = 22;
-    r1.action.type = ACT_DROP;
-    r1.action.out_ifindex = 0;
-    rule_table_add(rt, &r1);
-
-    // Fwd every TCP from 10.0.0.0/8
-    rule_t r2;
-    memset(&r2, 0, sizeof(r2));
-    r2.priority = 100;
-    r2.ip_ver = 4;
-    r2.protocol = 6;
-    r2.src_ip.v4 = (10u << 24) | (0u << 16) | (0u << 8) | 0u; // 10.0.0.0 in host order
-    uint32_t src_mask;
-    ipv4_mask_from_prefix(8, &src_mask);
-    r2.src_mask.v4 = src_mask;
-    r2.action.type = ACT_FWD;
-    r2.action.out_ifindex = 3;
-    rule_table_add(rt, &r2);
-
-    // Implicit deny (drop)
-    rule_t r3;
-    memset(&r3, 0, sizeof(r3));
-    r3.priority = 10000;
-    r3.action.type = ACT_DROP;
-    rule_table_add(rt, &r3);
 }
 
 static int assign_cores(int num_workers, int *rx_core, int *worker_cores, int *stats_core) {
@@ -306,10 +275,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // IV. Init rule table, add some demo rules
+    // IV. Init rule table, load rules
     rule_table_t rt;
     rule_table_init(&rt, 1024);
-    install_demo_flows(&rt);
+    if (cfg.rules_file) {
+        if (rule_config_load(cfg.rules_file, &rt) != 0) {
+            log_msg(LOG_ERROR, "Faield to load rules from %s", cfg.rules_file);
+            return 1;
+        }
+    }
 
     // V. Init ARP Table
     arp_table_t arpt;

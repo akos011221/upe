@@ -52,6 +52,7 @@ add_executable(test_suite
     src/pktbuf.c
     src/ring.c
     src/rule_table.c
+    src/rule_config.c
     src/log.c
     src/arp_table.c
     src/ndp_table.c

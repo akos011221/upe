@@ -4,7 +4,6 @@
 #include <inttypes.h>
 #include <stdatomic.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "arp_table.h"
@@ -12,6 +11,7 @@
 #include "parser.h"
 #include "pktbuf.h"
 #include "ring.h"
+#include "rule_config.h"
 #include "rule_table.h"
 
 #define GREEN "\033[0;32m"
@@ -503,6 +503,49 @@ int test_ipv6_rule_matching(void) {
     TEST_ASSERT(mask[1] == 0);
 
     rule_table_destroy(&rt);
+    return 0;
+}
+
+int test_rule_config_load(void) {
+    const char *tmp = "/tmp/test-rules.conf";
+    FILE *f = fopen(tmp, "w");
+    TEST_ASSERT(f != NULL);
+
+    fprintf(f, "[rule]\n"
+               "priority = 10\n"
+               "protocol = tcp\n"
+               "dst_port = 80\n"
+               "action = drop\n"
+               "\n"
+               "[rule]\n"
+               "priority = 100\n"
+               "ip_version = 6\n"
+               "src = 2001:db8::/32\n"
+               "action = drop\n"
+               "\n"
+               "[rule]\n"
+               "priority = 50000\n"
+               "action = drop");
+    fclose(f);
+
+    // Test 1) Successful initialization and loading of rules.
+    rule_table_t rt;
+    TEST_ASSERT(rule_table_init(&rt, 64) == 0);
+    TEST_ASSERT(rule_config_load(tmp, &rt) == 0);
+    TEST_ASSERT(rt.count == 3);
+
+    // Test 2) Rules are sorted by priority.
+    TEST_ASSERT(rt.rules[0].priority == 10);
+    TEST_ASSERT(rt.rules[0].protocol == 6);
+    TEST_ASSERT(rt.rules[0].dst_port == 80);
+
+    TEST_ASSERT(rt.rules[1].priority == 100);
+    TEST_ASSERT(rt.rules[1].ip_ver == 6);
+
+    TEST_ASSERT(rt.rules[2].priority == 50000);
+
+    rule_table_destroy(&rt);
+    remove(tmp);
     return 0;
 }
 

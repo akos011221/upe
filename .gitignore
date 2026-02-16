@@ -17,6 +17,7 @@
 *.profdata
 compile_commands.json
 
+.vscode
 
 core
 core.*
