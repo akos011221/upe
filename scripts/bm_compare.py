@@ -20,7 +20,7 @@ def main():
     parser.add_argument("current", help="Current JSON file (from pull request)")
     parser.add_argument("--metric", required=True,
                         help="Dot seperated path to metric (e.g. results.consumer.throughput_mpps)")
-    parser.add_argument("--treshold", type=float, default=10.0,
+    parser.add_argument("--threshold", type=float, default=10.0,
                         help="Max allowed regression in percent (default: 10)")
     args = parser.parse_args()
 
@@ -49,7 +49,7 @@ def main():
     print(f"Change:    {change_pct:+.2f}%")
     print(f"Threshold: -{args.threshold:.1f}%")
 
-    if change_pct < -args.treshold:
+    if change_pct < -args.threshold:
         print(f"\nFAIL: Performance regressed by {abs(change_pct):.2f}% (limit: {args.threshold}%)")
         sys.exit(1)
     else:
