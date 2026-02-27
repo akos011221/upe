@@ -108,9 +108,17 @@ Workers implement the data plane. They're designed to be as independent as possi
 ## 5. Policy
 
 ### Design
-The classification engine is a simple linear array of rules  sorted by priority. `rule_table_match` iterates through the list until it finds a match. First match wins.
+Rule matcher is a simple linear array of rules sorted by priority. `rule_table_match` iterates through the list until it finds a match. First match wins.
 
-The rule table is effectively immutable during packet processing, so workers can read it concurrently without locks.
+Workers can read the rule table without any locks during the packet processing.
+
+### Dual-Stack
+Both IPv4 and IPv6 addresses are supported.
+
+Wildcards are supported by giving all zeros masks.
+
+### Rule configuration
+Rules can be loaded from INI formatted config files using `--rules <file>`.
 
 ---
 

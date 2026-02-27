@@ -18,6 +18,7 @@ add_executable(upe
   src/arp_table.c
   src/ndp_table.c
   src/affinity.c
+  src/rule_config.c
 )
 
 target_include_directories(upe PRIVATE include)
@@ -51,6 +52,7 @@ add_executable(test_suite
     src/pktbuf.c
     src/ring.c
     src/rule_table.c
+    src/rule_config.c
     src/log.c
     src/arp_table.c
     src/ndp_table.c

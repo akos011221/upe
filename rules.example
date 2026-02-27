@@ -1,0 +1,26 @@
+# Demo rules for UPE
+
+[rule]
+priority = 5
+protocol = tcp
+dst_port = 22
+action = drop
+
+[rule]
+priority = 1000
+ip_version = 4
+protocol = tcp
+src = 192.168.0.0/16
+action = fwd
+out_iface = lo
+
+[rule]
+priority = 1200
+ip_version = 6
+src = 2001:db8::/32
+action = fwd
+out_iface = lo
+
+[rule]
+priority = 9999
+action = drop
