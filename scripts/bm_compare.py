@@ -27,7 +27,7 @@ def main():
     try:
         with open(args.baseline) as f:
             baseline = json.load(f)
-    except FileNotFounderror:
+    except FileNotFoundError:
         print(f"No baseline found at {args.baseline}, skipping compare.")
         sys.exit(0)
 
