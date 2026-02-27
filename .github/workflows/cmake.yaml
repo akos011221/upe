@@ -26,3 +26,51 @@ jobs:
 
     - name: Run Tests
       run: cd build && ctest --output-on-failure
+
+    - name: Run throughput benchmark
+      run: |
+        ./build/benchmark_throughput \
+          --workers=2 --duration=5 --warmup --json \
+            -o throughput_result.json
+
+    - name: Run pktbuf benchmark
+      run: |
+        ./build/benchmark_pktbuf \
+          --threads=4 --ops=10000000 --warmup --json \
+          -o pktbuf_result.json
+
+    - name: Upload baseline
+      if: github.ref == 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-baseline
+        path: |
+          throughput_result.json
+          pktbuf_result.json
+        overwrite: true
+
+    - name: Download baseline
+      if: github.event_name == 'pull_request'
+      uses: actions/download-artifact@v4
+      with:
+        name: benchmark-baseline
+        path: baseline/
+      continue-on-error: true
+
+    - name: Compare throughput
+      if: github.event_name == 'pull_request'
+      run: |
+        python3 scripts/bm_compare.py \
+        baseline/throughput_result.json \
+        throughput_result.json \
+        --metric results.consumer.throughput_mpps \
+        --threshold 10
+
+    - name: Compare pktbuf
+      if: github.event_name == 'pull_request'
+      run: |
+        python3 scripts/bm_compare.py \
+          baseline/pktbuf_result.json \
+          pktbuf_result.json \
+          --metric results.multi_thread.ops_per_sec \
+          --threshold 10
