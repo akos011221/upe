@@ -34,6 +34,12 @@ The global pool uses `atomic_compare_exchange_weak_explicit` instead of mutexes:
 *   On success, using `memory_order_acq_rel` we can make sure that the buffer pointers are visible to other threads.
 *   On failure, we use `memory_order_acquire` to get the latest state.
 
+### Huge Pages
+
+The buffer array is allocated using `mmap` with 2MB huge pages to reduce TLB usage from many 4KB entries to a few entries (2MB pages).
+
+It requires pre-allocated huge pages. If missing, then `mmap` with regular pages are used. If that's failing, then we're falling back to `calloc` (standard heap allocation).
+
 ### Key functions
 
 *   **`pktbuf_pool_init`**: Pre-allocates all buffers in a single contignous block. Initializes the free stack with pointers to all buffers.

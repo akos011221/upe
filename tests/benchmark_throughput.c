@@ -243,6 +243,7 @@ typedef struct {
     producer_result_t producer;
     uint64_t per_worker_pkts[MAX_WORKERS];
     int num_workers;
+    bool huge_pages_used;
 } bench_result_t;
 
 /* ── Output ───────────────────────────────────────────────────────── */
@@ -262,6 +263,7 @@ static void output_human(const bench_config_t *cfg, const bench_result_t *res, d
     printf("    Packet Size: %d bytes\n", cfg->packet_size);
     printf("    Warm-up:     %s\n", cfg->warmup ? "Yes" : "No");
     printf("    Timing overhead: %.1f ns\n\n", overhead_ns);
+    printf("    Huge Pages: %s\n", res->huge_pages_used ? "Yes" : "No");
 
     printf("Producer:\n");
     printf("    Packets Pushed: %lu\n", (unsigned long)res->producer.packets_pushed);
@@ -330,6 +332,7 @@ static void output_json(const bench_config_t *cfg, const bench_result_t *res, do
     json_key_int(&ctx, "batch_size", cfg->batch_size);
     json_key_int(&ctx, "packet_size", cfg->packet_size);
     json_key_bool(&ctx, "warmup", cfg->warmup);
+    json_key_bool(&ctx, "huge_pages", res->huge_pages_used);
     json_end_object(&ctx);
 
     /* Results. */
@@ -490,6 +493,7 @@ int main(int argc, char **argv) {
     /* Setup. */
     bench_env_t env;
     setup_env(&env, &cfg);
+    bool hugepgs = env.pool.use_hugepages;
 
     for (int i = 0; i < cfg.num_workers; i++) {
         worker_start(&env.workers[i]);
@@ -535,6 +539,8 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
     }
+
+    result.huge_pages_used = env.pool.use_hugepages;
 
     if (cfg.json_output) {
         output_json(&cfg, &result, overhead_ns, out);

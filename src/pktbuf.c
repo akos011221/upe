@@ -1,17 +1,22 @@
 #include "pktbuf.h"
+#include "log.h"
 
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
-#define LOCAL_CACHE_SIZE 64                       // Buffers per each thread's private cache.
-#define BULK_TRANSFER_SIZE (LOCAL_CACHE_SIZE / 2) // Buffers to move at once between local/global.
+#define LOCAL_CACHE_SIZE 64
+#define BULK_TRANSFER_SIZE (LOCAL_CACHE_SIZE / 2)
+#define HUGE_PAGE_SIZE (2UL * 1024 * 1024) // 2 MB
+#define MMAP_HUGE_2MB_FLAG (21 << MAP_HUGE_SHIFT)
+#define ALIGN_UP(n, align) (((n) + (align) - 1) & ~((align) - 1))
 
 typedef struct {
-    pktbuf_pool_t *pool;               // Pool that this cache belongs to.
-    size_t count;                      // Number of buffers in the cache currently.
-    pktbuf_t *items[LOCAL_CACHE_SIZE]; // Cached buffer pointers.
+    pktbuf_pool_t *pool;
+    size_t count;
+    pktbuf_t *items[LOCAL_CACHE_SIZE];
 } local_cache_t;
 
 /*
@@ -192,7 +197,39 @@ int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
     }
 
     // Allocation of the buffer array.
-    p->buffers = (pktbuf_t *)calloc(capacity, sizeof(pktbuf_t));
+    size_t raw_size = capacity * sizeof(pktbuf_t);
+    size_t mmap_len = ALIGN_UP(raw_size, HUGE_PAGE_SIZE);
+
+    p->use_hugepages = false;
+    p->buffers_mmap_len = 0;
+    p->buffers = NULL;
+
+    // Attempt 1: mmap with 2MB huge pages.
+    void *mem = mmap(NULL, mmap_len, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MMAP_HUGE_2MB_FLAG, -1, 0);
+
+    if (mem != MAP_FAILED) {
+        p->buffers = (pktbuf_t *)mem;
+        p->buffers_mmap_len = mmap_len;
+        p->use_hugepages = true;
+        log_msg(LOG_INFO, "pktbuf: allocated %zu bytes using 2MB huge pages (%zu pages)", mmap_len,
+                mmap_len / HUGE_PAGE_SIZE);
+    } else {
+        // Attempt 2: regular mmap (no huge pages).
+        log_msg(LOG_WARN, "pktbuf: huge pages unavailable, using regular mmap");
+        mem = mmap(NULL, mmap_len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (mem != MAP_FAILED) {
+            p->buffers = (pktbuf_t *)mem;
+            p->buffers_mmap_len = mmap_len;
+            log_msg(LOG_INFO, "pktbuf: allocated %zu bytes using regular mmap", mmap_len);
+        } else {
+            // Atempt 3: calloc as last resort.
+            log_msg(LOG_WARN, "pktbuf: regular mmap failed, falling back to calloc");
+            p->buffers = (pktbuf_t *)calloc(capacity, sizeof(pktbuf_t));
+        }
+    }
+
     if (p->buffers == NULL) {
         return -1;
     }
@@ -238,11 +275,18 @@ void pktbuf_pool_destroy(pktbuf_pool_t *p) {
        buffer.
     */
     free(p->free_stack);
-    free(p->buffers);
+
+    if (p->buffers_mmap_len > 0) {
+        munmap(p->buffers, p->buffers_mmap_len);
+    } else {
+        free(p->buffers);
+    }
 
     p->free_stack = NULL;
     p->buffers = NULL;
     p->capacity = 0;
+    p->buffers_mmap_len = 0;
+    p->use_hugepages = false;
     atomic_store(&p->top, 0);
 }
 

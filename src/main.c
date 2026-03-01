@@ -258,6 +258,8 @@ int main(int argc, char **argv) {
         log_msg(LOG_ERROR, "pktbuf_pool_init failed");
         return 1;
     }
+    log_msg(LOG_INFO, "Packet pool uses %s",
+            pool.use_hugepages ? "2MB huge pages" : "standard pages");
 
     // II. Init rings; one per worker.
     spsc_ring_t *rings = calloc((size_t)WORKERS_NUM, sizeof(spsc_ring_t));
