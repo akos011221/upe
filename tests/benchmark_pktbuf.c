@@ -147,6 +147,7 @@ typedef struct {
     double total_ops_per_sec;  // Total throughput across all threads.
     double mean_thread_tput;   // Mean per-thread throughput.
     double cv;                 // Coefficient of variation (load balance).
+    bool huge_pages_used;
 } benchmark_result_t;
 
 static benchmark_result_t run_benchmark(const bench_config_t *cfg) {
@@ -156,6 +157,7 @@ static benchmark_result_t run_benchmark(const bench_config_t *cfg) {
     // than others.
     pktbuf_pool_t pool;
     pktbuf_pool_init(&pool, cfg->pool_capacity);
+    bool hugepgs = pool.use_hugepages;
 
     if (cfg->warmup) {
         warmup_phase(&pool, cfg->num_threads);
@@ -208,6 +210,8 @@ static benchmark_result_t run_benchmark(const bench_config_t *cfg) {
     free(contexts);
     pktbuf_pool_destroy(&pool);
 
+    result.huge_pages_used = hugepgs;
+
     return result;
 }
 
@@ -225,6 +229,7 @@ static void output_human(const bench_config_t *cfg, const benchmark_result_t *si
     printf("    Pool Size:  %zu buffers\n", cfg->pool_capacity);
     printf("    Warm-up:    %s\n", cfg->warmup ? "Yes" : "No");
     printf("    Timing overhead   %.1f ns\n\n", overhead_ns);
+    printf("    Huge Pages: %s\n", single->huge_pages_used ? "Yes" : "No");
 
     printf("Results:\n");
     printf("    Single Thread:\n");
@@ -277,6 +282,7 @@ static void output_json(const bench_config_t *cfg, const benchmark_result_t *sin
     json_key_int(&ctx, "ops_per_thread", (int64_t)cfg->ops_per_thread);
     json_key_int(&ctx, "pool_capacity", (int64_t)cfg->pool_capacity);
     json_key_bool(&ctx, "warmup", cfg->warmup);
+    json_key_bool(&ctx, "huge_pages", single->huge_pages_used);
     json_end_object(&ctx);
 
     // Results.
