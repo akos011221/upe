@@ -36,7 +36,7 @@ The global pool uses `atomic_compare_exchange_weak_explicit` instead of mutexes:
 
 ### Huge Pages
 
-The buffer array is allocated using `mmap` with 2MB huge pages to reduce TLB usage from many 4KB entries to a few entries (2MB pages).
+The buffer array is allocated using `mmap` with 2MB huge pages to reduce TLB entries usage from many 4KB entries to a few entries (2MB pages).
 
 It requires pre-allocated huge pages. If missing, then `mmap` with regular pages are used. If that's failing, then we're falling back to `calloc` (standard heap allocation).
 
