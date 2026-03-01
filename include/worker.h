@@ -68,6 +68,9 @@ typedef struct {
     int tx_count; /* In queue. */
 } worker_t;
 
+/* Set TSC calibration for latency measurement (call before starting workers). */
+void worker_set_tsc_calibration(double cycles_per_ns);
+
 /* Initialize worker, allocate stats memory for it. */
 int worker_init(worker_t *w, int worker_id, int core_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,
                 const rule_table_t *rt, const tx_ctx_t *tx, arp_table_t *arpt, ndp_table_t *ndpt);

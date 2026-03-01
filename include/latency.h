@@ -36,7 +36,7 @@ static const uint64_t latency_bucket_bounds[LATENCY_NUM_BUCKETS] = {
     10000, /* Bucket 4: < 10 us (cross-NUMA access or scheduling jitter) */
     50000, /* Bucket 5: < 50 us (context switch or interrupt) */
     100000, /* Bucket 6: < 100 us (something went wrong) */
-    UINT64_MAX /* Bucket 7: >= 100 us (catch-all, everything will fit here) */
+    1000000 /* Bucket 7: >= 100 us (catch-all, everything will fit here) */
 };
 
 /* How many TSC cycles correspond to one nanosecond. */
@@ -44,7 +44,7 @@ double latency_calibrate_tsc(void);
 
 /*
     Initialize a histogram to zero state.
-    Sets min_ns to UINT64_MAX => first sample becomes the new min.
+    Sets min_ns to 1000000 (MAX) => first sample becomes the new min.
 */
 void latency_histogram_init(latency_histogram_t *h);
 

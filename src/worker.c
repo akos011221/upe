@@ -105,6 +105,9 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
     if (parse_flow_key(b->data, b->len, &key) != 0) {
         /* Not a valid IPv4/TCP/UDP, drop it. */
         w->pkts_dropped++;
+        if (b->timestamp > 0) {
+            latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+        }
         pktbuf_free(w->pool, b);
         return;
     }
@@ -114,6 +117,9 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
     const rule_t *r = rule_table_match(w->rt, &key);
     if (!r) {
         w->pkts_dropped++;
+        if (b->timestamp > 0) {
+            latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+        }
         pktbuf_free(w->pool, b);
         return;
     }
@@ -127,6 +133,9 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
 
     if (r->action.type == ACT_DROP) {
         w->pkts_dropped++;
+        if (b->timestamp > 0) {
+            latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+        }
         pktbuf_free(w->pool, b);
         return;
     }
@@ -143,6 +152,9 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
 
             if (ip->ttl <= 1) {
                 w->pkts_dropped++;
+                if (b->timestamp > 0) {
+                    latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+                }
                 pktbuf_free(w->pool, b);
                 return;
             }
@@ -179,6 +191,9 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
 
             if (ip6->hop_limit <= 1) {
                 w->pkts_dropped++;
+                if (b->timestamp > 0) {
+                    latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+                }
                 pktbuf_free(w->pool, b);
                 return;
             }
@@ -203,6 +218,12 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
             }
         }
 
+        /* Latency is recorded before queuing for TX (sendmmsg() is kernel/NIC latency, should not
+         * be included in the dataplane latency.)*/
+        if (b->timestamp > 0) {
+            latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+        }
+
         /* Accumulate frame for TX batch (not freed/sent yet). */
         w->tx_frames[w->tx_count] = b->data;
         w->tx_lens[w->tx_count] = b->len;
@@ -213,6 +234,9 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
 
     /* Unknown action => drop it. */
     w->pkts_dropped++;
+    if (b->timestamp > 0) {
+        latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
+    }
     pktbuf_free(w->pool, b);
 }
 
@@ -284,6 +308,8 @@ int worker_init(worker_t *w, int worker_id, int core_id, spsc_ring_t *rx_ring, p
     w->ndpt = ndpt;
     w->tx_count = 0;
 
+    latency_histogram_init(&w->latency_hist);
+
     /* Rule table capacity tells the size of the stats array. */
     w->rule_stats = (rule_stat_t *)calloc(rt->capacity, sizeof(rule_stat_t));
     if (!w->rule_stats) return -1;
@@ -303,4 +329,8 @@ int worker_start(worker_t *w) {
 void worker_join(worker_t *w) {
     if (!w) return;
     pthread_join(w->thread, NULL);
+}
+
+void worker_set_tsc_calibration(double cycles_per_ns) {
+    g_cycles_per_ns = cycles_per_ns;
 }

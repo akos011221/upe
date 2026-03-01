@@ -34,7 +34,7 @@ double latency_calibrate_tsc(void) {
 
 void latency_histogram_init(latency_histogram_t *h) {
     memset(h, 0, sizeof(*h));
-    h->min_ns = UINT64_MAX;
+    h->min_ns = 1000000;
 }
 
 /* Record a single latency sample (in TSC cycles) into the histogram. */
@@ -72,7 +72,7 @@ uint64_t latency_percentile(const latency_histogram_t *h, double percentile) {
         }
     }
 
-    /* Should never reach here, because the last bucket is UINT64_MAX */
+    /* Should never reach here, because the last bucket is 1000000 (MAX) */
     return latency_bucket_bounds[LATENCY_NUM_BUCKETS - 1];
 }
 

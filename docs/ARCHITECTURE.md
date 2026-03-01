@@ -134,6 +134,12 @@ A seperate stats thread wakes up every second to aggregate and  display counters
 
 The design keeps aggregation complexity out of the packet processing path. Workers just increment their local counters, and stats thread handles the rest. There's no locking.
 
+### Per-packet Latency Histograms
+
+Each packet is timestamped at RX arrival using the x86 `rdtsc` instruction (reads the CPU's Time Stamp Counter). The worker records the latency (`rdtsc_end - rdtsc_start`) after processing a packet (and before TX or free).
+
+*   **Calibration**: At startup, the TSC frequency is measured by sleeping 50ms and comparing `clock_gettime(CLOCK_MONOTONIC)` deltas against TSC deltas. From this, we get the `cycles_per_ns` conversion.
+
 ---
 
 ## 7. CPU Affinity
