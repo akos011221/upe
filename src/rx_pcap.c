@@ -1,5 +1,6 @@
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
+#include "latency.h"
 #include "log.h"
 #include "parser.h"
 #include "rx.h"
@@ -55,9 +56,13 @@ static void pcap_callback(u_char *user, const struct pcap_pkthdr *hdr, const u_c
         return;
     }
 
-    // Copy the bytes into the owned buffer.
+    // Copy the bytes into the owned buffer
+    // (after the memcpy, to only measure processing latency)
     memcpy(b->data, bytes, hdr->caplen);
     b->len = hdr->caplen;
+
+    // Stamp the arrival time using RDTSC.
+    b->timestamp = rdtsc();
 
     // Choose a worker ring based on Flow Hash (Software RSS).
     flow_key_t k;

@@ -2,6 +2,7 @@
 #include "worker.h"
 #include "affinity.h"
 #include "arp_table.h"
+#include "latency.h"
 #include "log.h"
 #include "ndp_table.h"
 #include "parser.h"
@@ -15,6 +16,9 @@
 
 /* Global stop flag from main; required for all workers. */
 extern volatile sig_atomic_t g_stop;
+
+/* TSC calibration factor; CPU-wide constant for all workers.  */
+static double g_cycles_per_ns = 0.0;
 
 static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
     struct eth_hdr *eth = (struct eth_hdr *)b->data;

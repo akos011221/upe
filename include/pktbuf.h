@@ -8,6 +8,7 @@
 #define PKTBUF_DATA_SIZE 2048 // MTU
 
 typedef struct pktbuf {
+    uint64_t timestamp; /* TSC cycle count at RX arrival */
     size_t len;
     uint8_t data[PKTBUF_DATA_SIZE];
 } pktbuf_t;

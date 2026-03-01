@@ -11,6 +11,7 @@
 #include "ring.h"
 #include "rule_table.h"
 #include "tx.h"
+#include "latency.h"
 
 #define WORKER_BURST_SIZE 32
 
@@ -38,6 +39,9 @@ typedef struct {
     uint64_t pkts_matched;
     uint64_t pkts_forwarded;
     uint64_t pkts_dropped;
+
+    /* Per-packet latency histogram [hot, updated for every packet]. */
+    latency_histogram_t latency_hist;
 
     /* Per-rule statistics [warm, accessed per matched packet]
      * ... indexed by rule_id. size=rt->capacity. */
