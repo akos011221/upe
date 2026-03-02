@@ -51,15 +51,18 @@ jobs:
 
     - name: Download baseline
       if: github.event_name == 'pull_request'
-      uses: actions/download-artifact@v4
+      uses: dawidd6/action-download-artifact@v6
       with:
         name: benchmark-baseline
+        branch: main
+        workflow: cmake.yaml
         path: baseline/
-      continue-on-error: true
+        if_no_artifact_found: warn
 
     - name: Compare throughput
       if: github.event_name == 'pull_request'
       run: |
+        [ -f baseline/throughput_result.json ] || { echo "No baseline. Skipping."; exit 0; }
         python3 scripts/bm_compare.py \
         baseline/throughput_result.json \
         throughput_result.json \
@@ -69,6 +72,7 @@ jobs:
     - name: Compare pktbuf
       if: github.event_name == 'pull_request'
       run: |
+        [ -f baseline/throughput_result.json ] || { echo "No baseline. Skipping."; exit 0; }
         python3 scripts/bm_compare.py \
           baseline/pktbuf_result.json \
           pktbuf_result.json \
