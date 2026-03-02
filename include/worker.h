@@ -11,6 +11,7 @@
 #include "ring.h"
 #include "rule_table.h"
 #include "tx.h"
+#include "latency.h"
 
 #define WORKER_BURST_SIZE 32
 
@@ -39,6 +40,9 @@ typedef struct {
     uint64_t pkts_forwarded;
     uint64_t pkts_dropped;
 
+    /* Per-packet latency histogram [hot, updated for every packet]. */
+    latency_histogram_t latency_hist;
+
     /* Per-rule statistics [warm, accessed per matched packet]
      * ... indexed by rule_id. size=rt->capacity. */
     rule_stat_t *rule_stats;
@@ -63,6 +67,9 @@ typedef struct {
     pktbuf_t *tx_bufs[WORKER_BURST_SIZE]; /* Deferred free after sendmmsg. */
     int tx_count; /* In queue. */
 } worker_t;
+
+/* Set TSC calibration for latency measurement (call before starting workers). */
+void worker_set_tsc_calibration(double cycles_per_ns);
 
 /* Initialize worker, allocate stats memory for it. */
 int worker_init(worker_t *w, int worker_id, int core_id, spsc_ring_t *rx_ring, pktbuf_pool_t *pool,

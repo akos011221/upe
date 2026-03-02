@@ -36,7 +36,7 @@ The global pool uses `atomic_compare_exchange_weak_explicit` instead of mutexes:
 
 ### Huge Pages
 
-The buffer array is allocated using `mmap` with 2MB huge pages to reduce TLB usage from many 4KB entries to a few entries (2MB pages).
+The buffer array is allocated using `mmap` with 2MB huge pages to reduce TLB entries usage from many 4KB entries to a few entries (2MB pages).
 
 It requires pre-allocated huge pages. If missing, then `mmap` with regular pages are used. If that's failing, then we're falling back to `calloc` (standard heap allocation).
 
@@ -133,6 +133,12 @@ Rules can be loaded from INI formatted config files using `--rules <file>`.
 A seperate stats thread wakes up every second to aggregate and  display counters. It loops through all worker structures and sums their private `rule_stats` arrays.
 
 The design keeps aggregation complexity out of the packet processing path. Workers just increment their local counters, and stats thread handles the rest. There's no locking.
+
+### Per-packet Latency Histograms
+
+Each packet is timestamped at RX arrival using the x86 `rdtsc` instruction (reads the CPU's Time Stamp Counter). The worker records the latency (`rdtsc_end - rdtsc_start`) after processing a packet (and before TX or free).
+
+*   **Calibration**: At startup, the TSC frequency is measured by sleeping 50ms and comparing `clock_gettime(CLOCK_MONOTONIC)` deltas against TSC deltas. From this, we get the `cycles_per_ns` conversion.
 
 ---
 

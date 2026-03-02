@@ -10,6 +10,7 @@
 
 #include "affinity.h"
 #include "arp_table.h"
+#include "latency.h"
 #include "log.h"
 #include "ndp_table.h"
 #include "pktbuf.h"
@@ -214,6 +215,40 @@ static void *stats_thread_func(void *arg) {
         }
         printf("-------------------------------------------------------------\n");
         printf("TOTAL: %lu packets, %lu bytes\n", total_pkts, total_bytes);
+
+        /* Aggregate latency histograms from all workers. */
+        latency_histogram_t combined;
+        latency_histogram_init(&combined);
+
+        for (int w = 0; w < ctx->num_workers; w++) {
+            latency_histogram_merge(&combined, &ctx->workers[w].latency_hist);
+        }
+
+        if (combined.total_count > 0) {
+            uint64_t mean_ns = combined.sum_ns / combined.total_count;
+
+            printf("\n=== Dataplane latency ===\n");
+            printf("    Samples: %lu\n", combined.total_count);
+            printf("    Min: %lu ns\n", combined.min_ns);
+            printf("    Mean: %lu ns\n", mean_ns);
+            printf("    p50: %lu ns\n", latency_percentile(&combined, 0.50));
+            printf("    p95: %lu ns\n", latency_percentile(&combined, 0.95));
+            printf("    p99: %lu ns\n", latency_percentile(&combined, 0.99));
+            printf("    Max:     %lu ns\n", combined.max_ns);
+
+            printf("\n  Distribution:\n");
+            static const char *bucket_labels[LATENCY_NUM_BUCKETS] = {
+                "<100ns", "<500ns", "<1us", "<5us", "<10us", "<50us", "<100us", ">=100us"};
+
+            for (int i = 0; i < LATENCY_NUM_BUCKETS; i++) {
+                if (combined.buckets[i] > 0) {
+                    /* Percentage of total samples in this bucket. */
+                    double pct = (double)combined.buckets[i] / (double)combined.total_count * 100.0;
+                    printf("    %-8s %10lu  (%5.1f%%)\n", bucket_labels[i], combined.buckets[i],
+                           pct);
+                }
+            }
+        }
     }
     return NULL;
 }
@@ -303,6 +338,10 @@ int main(int argc, char **argv) {
 
     // VII. Start workers
     worker_t *workers = calloc((size_t)WORKERS_NUM, sizeof(worker_t));
+    double cycles_per_ns = latency_calibrate_tsc();
+    log_msg(LOG_INFO, "TSC calibration: %.2f cycles/ns", cycles_per_ns);
+    worker_set_tsc_calibration(cycles_per_ns);
+
     for (int i = 0; i < WORKERS_NUM; i++) {
         worker_init(&workers[i], i, worker_cores[i], &rings[i], &pool, &rt, &tx, &arpt, &ndpt);
 
