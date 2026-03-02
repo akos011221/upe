@@ -562,5 +562,6 @@ int main(void) {
     RUN_TEST(test_arp_table);
     RUN_TEST(test_ndp_table);
     RUN_TEST(test_ipv6_rule_matching);
+    RUN_TEST(test_rule_config_load);
     return 0;
 }
