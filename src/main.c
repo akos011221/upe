@@ -377,6 +377,7 @@ int main(int argc, char **argv) {
     rx_start(&rx);
 
     // IX. RX returned => stop workers and join
+    sleep(1);
     g_stop = 1;
 
     // Join stats thread
