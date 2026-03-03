@@ -1,3 +1,4 @@
+```text
 upe(7)                             Userspace Tools                             upe(7)
 
 NAME
@@ -146,3 +147,4 @@ NOTES
        * Root privileges are required for raw socket access.
        * Designed for experimentation with userspace networking pipelines.
        * Linux-only.
+```
