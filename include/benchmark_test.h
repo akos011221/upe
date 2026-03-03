@@ -6,14 +6,14 @@
 #include <stdio.h>
 #include <time.h>
 
-// Collect system information.
+/* Collect system information. */
 typedef struct {
-    char cpu_model[256]; // e.g. "Intel(R) Xeon(R) CPU E5-2680 v4"
-    int num_cores;       // Total logical CPUs (includes hyper-threading)
-    int l1d_cache_kb;    // L1 data cache size in KB (per core)
-    int l2_cache_kb;     // L2 cache size in KB (per core)
-    int l3_cache_kb;     // L3 cache size in KB (shared)
-    int numa_nodes;      // Number of NUMA nodes (1 = UMA system)
+    char cpu_model[256]; /* e.g. "Intel(R) Xeon(R) CPU E5-2680 v4" */
+    int num_cores; /* Total logical CPUs (includes hyper-threading) */
+    int l1d_cache_kb; /* L1 data cache size in KB (per core) */
+    int l2_cache_kb; /* L2 cache size in KB (per core) */
+    int l3_cache_kb; /* L3 cache size in KB (shared) */
+    int numa_nodes; /* Number of NUMA nodes (1 = UMA system) */
 } system_info_t;
 
 /*
@@ -26,14 +26,14 @@ void benchmark_get_system_info(system_info_t *info);
 */
 
 typedef struct {
-    FILE *out;        // Output stream (stdout or file)
-    int indent_level; // Current nesting depth (0 = top level)
+    FILE *out; /* Output stream (stdout or file) */
+    int indent_level; /* Current nesting depth (0 = top level) */
     bool needs_comma;
 } json_ctx_t;
 
 void json_init(json_ctx_t *ctx, FILE *out);
-void json_begin_object(json_ctx_t *ctx); // Prints '{'
-void json_end_object(json_ctx_t *ctx);   // Prints '}'
+void json_begin_object(json_ctx_t *ctx); /* Prints '{' */
+void json_end_object(json_ctx_t *ctx); /* Prints '}' */
 void json_key_string(json_ctx_t *ctx, const char *key, const char *value);
 void json_key_int(json_ctx_t *ctx, const char *key, int64_t value);
 void json_key_double(json_ctx_t *ctx, const char *key, double value);

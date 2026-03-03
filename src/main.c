@@ -119,8 +119,8 @@ static int parse_args(int argc, char **argv, upe_config_t *cfg) {
 }
 
 static log_level_t verbosity_to_level(int verbose) {
-    // verbose: 0..2
-    // level: WARN/INFO/DEBUG
+    /* verbose: 0..2
+     * level: WARN/INFO/DEBUG */
     if (verbose <= 0) return LOG_WARN;
     if (verbose == 1) return LOG_INFO;
     return LOG_DEBUG;
@@ -128,7 +128,7 @@ static log_level_t verbosity_to_level(int verbose) {
 
 static int assign_cores(int num_workers, int *rx_core, int *worker_cores, int *stats_core) {
     int total_cores = affinity_get_num_cores();
-    int required_cores = 1 + num_workers + 1; // RX + Workers + Stats
+    int required_cores = 1 + num_workers + 1; /* RX + Workers + Stats */
 
     if (total_cores < required_cores) {
         log_msg(LOG_WARN,
@@ -136,7 +136,7 @@ static int assign_cores(int num_workers, int *rx_core, int *worker_cores, int *s
                 "Running without CPU pinning (performance may suffer).",
                 required_cores, num_workers, total_cores);
 
-        // Disable affinity by setting all cores to -1.
+        /* Disable affinity by setting all cores to -1. */
         *rx_core = -1;
         *stats_core = -1;
         for (int i = 0; i < num_workers; i++) {
@@ -145,7 +145,7 @@ static int assign_cores(int num_workers, int *rx_core, int *worker_cores, int *s
         return -1;
     }
 
-    // Assign cores.
+    /* Assign cores. */
     *rx_core = 0;
     for (int i = 0; i < num_workers; i++) {
         worker_cores[i] = 1 + i;
@@ -179,7 +179,7 @@ static void *stats_thread_func(void *arg) {
     }
 
     while (!g_stop) {
-        sleep(1); // Stats thread wakes up every second.
+        sleep(1); /* Stats thread wakes up every second. */
 
         printf("\033[2J\033[H");
         printf("=== UPE Statistics ===\n");
@@ -189,7 +189,7 @@ static void *stats_thread_func(void *arg) {
         uint64_t total_pkts = 0;
         uint64_t total_bytes = 0;
 
-        // Iterate over rules, ordered by priority.
+        /* Iterate over rules, ordered by priority. */
         for (size_t i = 0; i < ctx->rt->count; i++) {
             const rule_t *r = &ctx->rt->rules[i];
             uint32_t rid = r->rule_id;
@@ -197,7 +197,7 @@ static void *stats_thread_func(void *arg) {
             uint64_t p_sum = 0;
             uint64_t b_sum = 0;
 
-            // Aggregate stats from all workers.
+            /* Aggregate stats from all workers. */
             for (int w = 0; w < ctx->num_workers; w++) {
                 if (ctx->workers[w].rule_stats) {
                     p_sum += ctx->workers[w].rule_stats[rid].packets;
@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
     const size_t RING_CAPACITY = 1024;
     const size_t POOL_CAPACITY = 4096;
 
-    // === CPU affinity setup. ===
+    /* === CPU affinity setup. === */
     int rx_core = -1;
     int stats_core = -1;
     int worker_cores[WORKERS_NUM];
@@ -285,9 +285,9 @@ int main(int argc, char **argv) {
         }
     }
 
-    // ============================
+    /* ============================ */
 
-    // I. Init packet pool.
+    /* I. Init packet pool. */
     pktbuf_pool_t pool;
     if (pktbuf_pool_init(&pool, POOL_CAPACITY) != 0) {
         log_msg(LOG_ERROR, "pktbuf_pool_init failed");
@@ -296,7 +296,7 @@ int main(int argc, char **argv) {
     log_msg(LOG_INFO, "Packet pool uses %s",
             pool.use_hugepages ? "2MB huge pages" : "standard pages");
 
-    // II. Init rings; one per worker.
+    /* II. Init rings; one per worker. */
     spsc_ring_t *rings = calloc((size_t)WORKERS_NUM, sizeof(spsc_ring_t));
     for (int i = 0; i < WORKERS_NUM; i++) {
         if (ring_init(&rings[i], RING_CAPACITY) != 0) {
@@ -305,14 +305,14 @@ int main(int argc, char **argv) {
         }
     }
 
-    // III. Init TX context
+    /* III. Init TX context */
     tx_ctx_t tx;
     if (tx_init(&tx, cfg.iface ? cfg.iface : "lo") != 0) {
         log_msg(LOG_ERROR, "tx_init failed");
         return 1;
     }
 
-    // IV. Init rule table, load rules
+    /* IV. Init rule table, load rules */
     rule_table_t rt;
     rule_table_init(&rt, 1024);
     if (cfg.rules_file) {
@@ -322,21 +322,21 @@ int main(int argc, char **argv) {
         }
     }
 
-    // V. Init ARP Table
+    /* V. Init ARP Table */
     arp_table_t arpt;
     if (arp_table_init(&arpt, 1024) != 0) {
         log_msg(LOG_ERROR, "arp_table_init failed");
         return 1;
     }
 
-    // VI. Init NDP Table
+    /* VI. Init NDP Table */
     ndp_table_t ndpt;
     if (ndp_table_init(&ndpt, 1024) != 0) {
         log_msg(LOG_ERROR, "ndp_table_init failed");
         return 1;
     }
 
-    // VII. Start workers
+    /* VII. Start workers */
     worker_t *workers = calloc((size_t)WORKERS_NUM, sizeof(worker_t));
     double cycles_per_ns = latency_calibrate_tsc();
     log_msg(LOG_INFO, "TSC calibration: %.2f cycles/ns", cycles_per_ns);
@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Pin RX thread (main thread)
+    /* Pin RX thread (main thread) */
     if (rx_core >= 0) {
         if (affinity_pin_self(rx_core) != 0) {
             log_msg(LOG_WARN, "RX thread: failed to pin to core %d", rx_core);
@@ -360,7 +360,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    // VIII. Start RX (blocking)
+    /* VIII. Start RX (blocking) */
     rx_ctx_t rx;
     rx.iface = cfg.iface;
     rx.pcap_file = cfg.pcap_file;
@@ -368,7 +368,7 @@ int main(int argc, char **argv) {
     rx.rings = rings;
     rx.ring_count = WORKERS_NUM;
 
-    // Start stats thread
+    /* Start stats thread */
     pthread_t stats_th;
     stats_ctx_t stats_ctx = {
         .workers = workers, .num_workers = WORKERS_NUM, .rt = &rt, .core_id = stats_core};
@@ -376,18 +376,18 @@ int main(int argc, char **argv) {
 
     rx_start(&rx);
 
-    // IX. RX returned => stop workers and join
+    /* IX. RX returned => stop workers and join */
     sleep(1);
     g_stop = 1;
 
-    // Join stats thread
+    /* Join stats thread */
     pthread_join(stats_th, NULL);
 
     for (int i = 0; i < WORKERS_NUM; i++) {
         worker_join(&workers[i]);
     }
 
-    // X. Cleanup
+    /* X. Cleanup */
     tx_close(&tx);
     for (int i = 0; i < WORKERS_NUM; i++) {
         ring_destroy(&rings[i]);

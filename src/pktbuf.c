@@ -9,7 +9,7 @@
 
 #define LOCAL_CACHE_SIZE 64
 #define BULK_TRANSFER_SIZE (LOCAL_CACHE_SIZE / 2)
-#define HUGE_PAGE_SIZE (2UL * 1024 * 1024) // 2 MB
+#define HUGE_PAGE_SIZE (2UL * 1024 * 1024) /* 2 MB */
 #define MMAP_HUGE_2MB_FLAG (21 << MAP_HUGE_SHIFT)
 #define ALIGN_UP(n, align) (((n) + (align) - 1) & ~((align) - 1))
 
@@ -58,12 +58,12 @@ static size_t global_pop_bulk(pktbuf_pool_t *pool, pktbuf_t **out, size_t reques
 
     /* CAS retry loop */
     do {
-        // ACQUIRE load so we see buffer pointers published by prior RELEASE stores.
+        /* ACQUIRE load so we see buffer pointers published by prior RELEASE stores. */
         old_top = atomic_load_explicit(&pool->top, memory_order_acquire);
 
-        // Calculate how many buffers we can take.
+        /* Calculate how many buffers we can take. */
         if (old_top == 0) {
-            return 0; // Pool is empty.
+            return 0; /* Pool is empty. */
         }
 
         actual = (old_top < request) ? old_top : request;
@@ -79,11 +79,11 @@ static size_t global_pop_bulk(pktbuf_pool_t *pool, pktbuf_t **out, size_t reques
                                other threads.
         -   Failure (ACQUIRE): look at the latest top value before retrying.
         */
-    } while (!atomic_compare_exchange_weak_explicit(&pool->top,           // object
-                                                    &old_top,             // expected
-                                                    new_top,              // desired
-                                                    memory_order_acq_rel, // success order
-                                                    memory_order_acquire  // failure order
+    } while (!atomic_compare_exchange_weak_explicit(&pool->top,           /* object */
+                                                    &old_top,             /* expected */
+                                                    new_top,              /* desired */
+                                                    memory_order_acq_rel, /* success order */
+                                                    memory_order_acquire  /* failure order */
                                                     ));
 
     /*
@@ -126,20 +126,20 @@ static void global_push_bulk(pktbuf_pool_t *pool, pktbuf_t **bufs, size_t count)
         old_top = atomic_load_explicit(&pool->top, memory_order_acquire);
         new_top = old_top + count;
 
-        // Speculative writes of our buffers to the stack. Slots are above top, no one is reading
-        // them.
+        /* Speculative writes of our buffers to the stack.
+         * Slots are above top, no one is reading them. */
         for (size_t i = 0; i < count; i++) {
             pool->free_stack[old_top + i] = bufs[i];
         }
 
-    } while (!atomic_compare_exchange_weak_explicit(&pool->top,           // object
-                                                    &old_top,             // expected
-                                                    new_top,              // desired
-                                                    memory_order_acq_rel, // success order
-                                                    memory_order_acquire  // failure order
+    } while (!atomic_compare_exchange_weak_explicit(&pool->top,           /* object */
+                                                    &old_top,             /* expected */
+                                                    new_top,              /* desired */
+                                                    memory_order_acq_rel, /* success order */
+                                                    memory_order_acquire  /* failure order */
                                                     ));
 
-    // CAS succeeded: our writes are now "committed" and visible to poppers.
+    /* CAS succeeded: our writes are now "committed" and visible to poppers. */
 }
 
 /*
@@ -167,7 +167,7 @@ static void refill_local_cache(pktbuf_pool_t *pool) {
 */
 static void flush_local_cache(pktbuf_pool_t *pool) {
     size_t return_count = BULK_TRANSFER_SIZE;
-    size_t start_idx = t_cache.count - return_count; // returning from the END of the cache.
+    size_t start_idx = t_cache.count - return_count; /* returning from the END of the cache. */
 
     global_push_bulk(pool, &t_cache.items[start_idx], return_count);
 
@@ -196,7 +196,7 @@ int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
         return -1;
     }
 
-    // Allocation of the buffer array.
+    /* Allocation of the buffer array. */
     size_t raw_size = capacity * sizeof(pktbuf_t);
     size_t mmap_len = ALIGN_UP(raw_size, HUGE_PAGE_SIZE);
 
@@ -204,7 +204,7 @@ int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
     p->buffers_mmap_len = 0;
     p->buffers = NULL;
 
-    // Attempt 1: mmap with 2MB huge pages.
+    /* Attempt 1: mmap with 2MB huge pages. */
     void *mem = mmap(NULL, mmap_len, PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MMAP_HUGE_2MB_FLAG, -1, 0);
 
@@ -215,7 +215,7 @@ int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
         log_msg(LOG_INFO, "pktbuf: allocated %zu bytes using 2MB huge pages (%zu pages)", mmap_len,
                 mmap_len / HUGE_PAGE_SIZE);
     } else {
-        // Attempt 2: regular mmap (no huge pages).
+        /* Attempt 2: regular mmap (no huge pages). */
         log_msg(LOG_WARN, "pktbuf: huge pages unavailable, using regular mmap");
         mem = mmap(NULL, mmap_len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
@@ -224,7 +224,7 @@ int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
             p->buffers_mmap_len = mmap_len;
             log_msg(LOG_INFO, "pktbuf: allocated %zu bytes using regular mmap", mmap_len);
         } else {
-            // Atempt 3: calloc as last resort.
+            /* Atempt 3: calloc as last resort. */
             log_msg(LOG_WARN, "pktbuf: regular mmap failed, falling back to calloc");
             p->buffers = (pktbuf_t *)calloc(capacity, sizeof(pktbuf_t));
         }
@@ -234,7 +234,7 @@ int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity) {
         return -1;
     }
 
-    // Allocation of the free stack (array of pointers).
+    /* Allocation of the free stack (array of pointers). */
     p->free_stack = (pktbuf_t **)calloc(capacity, sizeof(pktbuf_t *));
     if (p->free_stack == NULL) {
         free(p->buffers);
@@ -295,29 +295,29 @@ pktbuf_t *pktbuf_alloc(pktbuf_pool_t *p) {
         return NULL;
     }
 
-    // Check if we switched pools.
+    /* Check if we switched pools. */
     if (t_cache.pool != p) {
         flush_all_local_cache();
         t_cache.pool = p;
         t_cache.count = 0;
     }
 
-    // Fast path: allocate from local cache.
-    // Most allocations should hit this path.
+    /* Fast path: allocate from local cache.
+     * Most allocations should hit this path. */
     if (t_cache.count > 0) {
         return t_cache.items[--t_cache.count];
     }
 
-    // Slow path: cache is empty, refill from global pool.
-    // This uses atomic CAS operations, once every BULK_TRANSFER_SIZE.
+    /* Slow path: cache is empty, refill from global pool.
+     * This uses atomic CAS operations, once every BULK_TRANSFER_SIZE. */
     refill_local_cache(p);
 
-    // Retry again after refill.
+    /* Retry again after refill. */
     if (t_cache.count > 0) {
         return t_cache.items[--t_cache.count];
     }
 
-    // Global pool is also empty (all buffers are in use).
+    /* Global pool is also empty (all buffers are in use). */
     return NULL;
 }
 
@@ -328,23 +328,23 @@ void pktbuf_free(pktbuf_pool_t *p, pktbuf_t *buf) {
 
     buf->len = 0;
 
-    // Check if we switched pools.
+    /* Check if we switched pools. */
     if (t_cache.pool != p) {
         flush_all_local_cache();
         t_cache.pool = p;
         t_cache.count = 0;
     }
 
-    // Fast path: free to the local cache.
-    // Most frees should hit this path.
+    /* Fast path: free to the local cache.
+     * Most frees should hit this path. */
     if (t_cache.count < LOCAL_CACHE_SIZE) {
         t_cache.items[t_cache.count++] = buf;
         return;
     }
 
-    // Slow path: cache is full, flush BULK_TRANSFER_SIZE to global pool.
+    /* Slow path: cache is full, flush BULK_TRANSFER_SIZE to global pool. */
     flush_local_cache(p);
 
-    // Now there's space in the cache. Add buffer to local cache.
+    /* Now there's space in the cache. Add buffer to local cache. */
     t_cache.items[t_cache.count++] = buf;
 }

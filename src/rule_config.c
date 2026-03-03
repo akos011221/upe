@@ -1,17 +1,17 @@
 #define _POSIX_C_SOURCE 200809L
-#include "rule_table.h"
-#include <netinet/in.h>
-#include <sys/socket.h>
-
 #include "rule_config.h"
+#include "parser.h"
+#include "rule_table.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 
 #include "log.h"
 
@@ -91,10 +91,10 @@ static int parse_ip_prefix(const char *str, uint8_t *ip_ver, ip_addr_t *ip, ip_a
 }
 
 static uint8_t parse_protocol(const char *val) {
-    if (strcmp(val, "tcp") == 0) return 6;
-    if (strcmp(val, "udp") == 0) return 17;
-    if (strcmp(val, "icmp") == 0) return 1;
-    if (strcmp(val, "icmpv6") == 0) return 58;
+    if (strcmp(val, "tcp") == 0) return IP_PROTO_TCP;
+    if (strcmp(val, "udp") == 0) return IP_PROTO_UDP;
+    if (strcmp(val, "icmp") == 0) return IP_PROTO_ICMP;
+    if (strcmp(val, "icmpv6") == 0) return IP_PROTO_ICMPV6;
 
     errno = 0;
     char *end = NULL;

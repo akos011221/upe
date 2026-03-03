@@ -1,4 +1,4 @@
-#define _GNU_SOURCE // pthread_setaffinity_np, CPU_* macros
+#define _GNU_SOURCE /* pthread_setaffinity_np, CPU_* macros */
 #include "affinity.h"
 #include "log.h"
 
@@ -22,11 +22,11 @@ int affinity_pin_thread(pthread_t thread, int core_id) {
         return -1;
     }
 
-    // Represents a bitmask of CPUs, it's a 1024 bit array on Linux x86_64.
+    /* Represents a bitmask of CPUs, it's a 1024 bit array on Linux x86_64. */
     cpu_set_t cpuset;
-    // Clears all bits, like `memset(&cpuset, 0, sizeof(cpuset))`.
+    /* Clears all bits, like `memset(&cpuset, 0, sizeof(cpuset))`. */
     CPU_ZERO(&cpuset);
-    // Sets the bit at pos `core_id` to 1. Thread may only run on that core.
+    /* Sets the bit at pos `core_id` to 1. Thread may only run on that core. */
     CPU_SET((size_t)core_id, &cpuset);
 
     /*
@@ -46,7 +46,7 @@ int affinity_pin_thread(pthread_t thread, int core_id) {
 }
 
 int affinity_pin_self(int core_id) {
-    // pthread_self() returns the pthread_t handle of the calling thread.
+    /* pthread_self() returns the pthread_t handle of the calling thread. */
 
     /* pthread_t is a pointer to a pthread descriptor that contains:
        - kernel thread ID (TID), stack info... */
@@ -60,8 +60,8 @@ bool affinity_is_pinned(pthread_t thread, int core_id) {
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
 
-    // Reads the current CPI affinity mask from the kernel.
-    // Inverse of pthread_setaffinity_np.
+    /* Reads the current CPU affinity mask from the kernel.
+     * Inverse of pthread_setaffinity_np. */
     /*
        Returns the mask, it's a single core like {2} if pinned.
        If unpinned, then multiple cores, like {0,1,2,3}.
@@ -71,8 +71,8 @@ bool affinity_is_pinned(pthread_t thread, int core_id) {
         return false;
     }
 
-    // Check if bit `core_id` is set in the mask.
-    // If set: 1, if clear: 0
+    /* Check if bit `core_id` is set in the mask.
+     * If set: 1, if clear: 0 */
     /* Doesn't guarantee that thread is ONLY pinned to core_id.
        for that, need to verify if only ONE bit is set. */
     return CPU_ISSET((size_t)core_id, &cpuset);
@@ -88,8 +88,8 @@ void affinity_print(pthread_t thread) {
         return;
     }
 
-    // Return the number of CPUs set in the mask.
-    // Can be used to check if it's pinned to 1 core or multiple, or unpinned.
+    /* Return the number of CPUs set in the mask.
+     * Can be used to check if it's pinned to 1 core or multiple, or unpinned. */
     int count = CPU_COUNT(&cpuset);
 
     int num_cores = affinity_get_num_cores();
@@ -98,7 +98,7 @@ void affinity_print(pthread_t thread) {
         return;
     }
 
-    // Build core list string.
+    /* Build core list string. */
     char cores_str[256] = {0};
     size_t offset = 0;
 

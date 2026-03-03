@@ -13,11 +13,11 @@ typedef enum {
 
 typedef struct {
     action_type_t type;
-    int out_ifindex; // linux interface index for TX
+    int out_ifindex; /* linux interface index for TX */
 } flow_action_t;
 
 typedef struct {
-    uint32_t priority; // lower is higher priority
+    uint32_t priority; /* lower is higher priority */
 
     uint8_t ip_ver;
     ip_addr_t src_ip;

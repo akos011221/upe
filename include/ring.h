@@ -6,12 +6,11 @@
 #include <stddef.h>
 
 typedef struct {
-    void **slots;    // void, so ring doesn't have to know about pktbuf_t*
-    size_t capacity; // must be power of two
+    void **slots;    /* void, so ring doesn't have to know about pktbuf_t* */
+    size_t capacity; /* must be power of two */
     size_t mask;
 
-    // producer writes at head
-    // consumer reads at tail
+    /* producer writes at head, consumer reads at tail */
     atomic_size_t head;
     atomic_size_t tail;
 } spsc_ring_t;
