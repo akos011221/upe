@@ -15,7 +15,7 @@
 void benchmark_get_system_info(system_info_t *info) {
     memset(info, 0, sizeof(*info));
 
-    // Default values (if parsing fails).
+    /* Default values (if parsing fails). */
     info->num_cores = 1;
     info->numa_nodes = 1;
 
@@ -28,8 +28,8 @@ void benchmark_get_system_info(system_info_t *info) {
             if (strncmp(line, "model name", 10) == 0 && info->cpu_model[0] == '\0') {
                 char *colon = strchr(line, ':');
                 if (colon) {
-                    colon += 2; // Skip ": "
-                    // Trim trailing newline.
+                    colon += 2; /* Skip ": " */
+                    /* Trim trailing newline. */
                     size_t len = strlen(colon);
                     if (len > 0 && colon[len - 1] == '\n') {
                         colon[len - 1] = '\0';
@@ -38,7 +38,7 @@ void benchmark_get_system_info(system_info_t *info) {
                 }
             }
 
-            // Count processors.
+            /* Count processors. */
             if (strncmp(line, "processor", 9) == 0) {
                 cpu_count++;
             }
@@ -48,10 +48,10 @@ void benchmark_get_system_info(system_info_t *info) {
         fclose(f);
     }
 
-    // Parse cache sizes from /sys/devices/system/cpu/cpu0/cache/.
-    // Each index*/ contains: type, level, size.
+    /* Parse cache sizes from /sys/devices/system/cpu/cpu0/cache/.
+     * Each index contains: type, level, size. */
 
-    // L1 data cache (index0).
+    /* L1 data cache (index0). */
     f = fopen("/sys/devices/system/cpu/cpu0/cache/index0/size", "r");
     if (f) {
         if (fscanf(f, "%dK", &info->l1d_cache_kb) != 1) {
@@ -60,7 +60,7 @@ void benchmark_get_system_info(system_info_t *info) {
         fclose(f);
     }
 
-    // L2 cache (index2).
+    /* L2 cache (index2). */
     f = fopen("/sys/devices/system/cpu/cpu0/cache/index2/size", "r");
     if (f) {
         if (fscanf(f, "%dK", &info->l2_cache_kb) != 1) {
@@ -69,7 +69,7 @@ void benchmark_get_system_info(system_info_t *info) {
         fclose(f);
     }
 
-    // L3 cache (index3).
+    /* L3 cache (index3). */
     f = fopen("/sys/devices/system/cpu/cpu0/cache/index3/size", "r");
     if (f) {
         if (fscanf(f, "%dK", &info->l3_cache_kb) != 1) {
@@ -78,8 +78,8 @@ void benchmark_get_system_info(system_info_t *info) {
         fclose(f);
     }
 
-    // NUMA nodes: count directories in /sys/devices/system/node/.
-    // Dirs are named node0, node1...
+    /* NUMA nodes: count directories in /sys/devices/system/node/.
+     * Dirs are named node0, node1... */
     int numa_count = 0;
     char path[64];
 
@@ -181,7 +181,7 @@ void json_begin_nested_object(json_ctx_t *ctx, const char *key) {
 double benchmark_get_time(void) {
     struct timespec ts;
 
-    // CLOCK_MONOTONIC_RAW is not affected by NTP adjustments.
+    /* CLOCK_MONOTONIC_RAW is not affected by NTP adjustments. */
     if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
         perror("clock_gettime(CLOCK_MONOTONIC_RAW)");
         exit(EXIT_FAILURE);
@@ -268,14 +268,14 @@ void benchmark_calculate_variance(const double *values, int count, double *mean,
         return;
     }
 
-    // Mean:
+    /* Mean: */
     double sum = 0.0;
     for (int i = 0; i < count; i++) {
         sum += values[i];
     }
     *mean = sum / (double)count;
 
-    // Deviation:
+    /* Deviation: */
     double variance = 0.0;
     for (int i = 0; i < count; i++) {
         double diff = values[i] - *mean;
@@ -284,6 +284,6 @@ void benchmark_calculate_variance(const double *values, int count, double *mean,
     variance /= (double)count;
     double stddev = sqrt(variance);
 
-    // Coefficient of variation:
+    /* Coefficient of variation: */
     *cv = (*mean != 0.0) ? (stddev / *mean) : 0.0;
 }

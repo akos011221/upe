@@ -4,13 +4,37 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Ethertypes (host byte order, use after ntohs) */
+#define ETH_TYPE_IPV4   0x0800
+#define ETH_TYPE_ARP    0x0806
+#define ETH_TYPE_IPV6   0x86DD
+
+/* IP protocols */
+#define IP_PROTO_ICMP   1
+#define IP_PROTO_TCP    6
+#define IP_PROTO_UDP    17
+#define IP_PROTO_ICMPV6 58
+
+/* ICMPv6 message types */
+#define ICMPV6_NEIGHBOR_SOL     135
+#define ICMPV6_NEIGHBOR_ADV     136
+
+/* NDP option types */
+#define NDP_OPT_SRC_LLADDR  1
+#define NDP_OPT_TGT_LLADDR  2
+
+/* ARP hardware/protocol constants */
+#define ARP_HW_ETHERNET 1
+#define ARP_HW_LEN_ETH  6
+#define ARP_PROTO_LEN   4
+
 /* Network Headers */
 /*
     `packed` is used for each network struct.
     CPU's rule is to read a 4-byte integer (uint32_t), the memory address MUST
-    be divisibly by 4.
+    be divisible by 4.
 
-    If you try to read a `uint_32_t` from 0x1001, the CPU hardware cannot do it
+    If you try to read a `uint32_t` from 0x1001, the CPU hardware cannot do it
     in a single cycle and raises hardware exception (Signal: `SUGBUS` or `SIGSEGV`).
 
     The solution is `__attribute__((packed))`, which tells the compiler that the
@@ -24,15 +48,15 @@ struct eth_hdr {
 } __attribute__((packed));
 
 struct arp_hdr {
-    uint16_t htype; // Hardware type
-    uint16_t ptype; // Protocol type
-    uint8_t hlen;   // Hardware address length (6)
-    uint8_t plen;   // Protocol address length (4)
-    uint16_t op;    // Operation (1=Request, 2=Reply)
-    uint8_t sha[6]; // Sender Hardware Address
-    uint32_t spa;   // Sender Protocol Address
-    uint8_t tha[6]; // Target Hardware Address
-    uint32_t tpa;   // Target Protocol Address
+    uint16_t htype; /* Hardware type */
+    uint16_t ptype; /* Protocol type */
+    uint8_t hlen;   /* Hardware address length (6) */
+    uint8_t plen;   /* Protocol address length (4) */
+    uint16_t op;    /* Operation (1=Request, 2=Reply) */
+    uint8_t sha[6]; /* Sender Hardware Address */
+    uint32_t spa;   /* Sender Protocol Address */
+    uint8_t tha[6]; /* Target Hardware Address */
+    uint32_t tpa;   /* Target Protocol Address */
 } __attribute__((packed));
 
 struct ipv4_hdr {
@@ -106,7 +130,7 @@ typedef union {
 } ip_addr_t;
 
 typedef struct {
-    uint8_t ip_ver; // 4 or 6
+    uint8_t ip_ver; /* 4 or 6 */
     ip_addr_t src_ip;
     ip_addr_t dst_ip;
     uint16_t src_port;

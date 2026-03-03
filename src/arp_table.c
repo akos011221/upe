@@ -36,7 +36,7 @@ void arp_update(arp_table_t *t, uint32_t ip, const uint8_t *mac) {
         size_t curr = (idx + i) & (t->capacity - 1);
 
         if (!t->entries[curr].valid) {
-            // Empty slot, insert here.
+            /* Empty slot, insert here. */
             t->entries[curr].valid = true;
             t->entries[curr].ip = ip;
             memcpy(t->entries[curr].mac, mac, 6);
@@ -45,7 +45,7 @@ void arp_update(arp_table_t *t, uint32_t ip, const uint8_t *mac) {
         }
 
         if (t->entries[curr].ip == ip) {
-            // Existing entry, update it.
+            /* Existing entry, update it. */
             memcpy(t->entries[curr].mac, mac, 6);
             t->entries[curr].update_at = time(NULL);
             break;

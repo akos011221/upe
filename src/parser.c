@@ -16,7 +16,7 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
     const uint8_t *l4_ptr = NULL;
     size_t l4_len = 0;
 
-    if (ethertype == 0x0800) {
+    if (ethertype == ETH_TYPE_IPV4) {
         /* ----> IPv4 header <---- */
         const uint8_t *ip_ptr = pkt + sizeof(struct eth_hdr);
         size_t ip_len = len - sizeof(struct eth_hdr);
@@ -44,7 +44,7 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
         l4_ptr = ip_ptr + ip_hdr_len;
         l4_len = ip_len - ip_hdr_len;
 
-    } else if (ethertype == 0x86DD) {
+    } else if (ethertype == ETH_TYPE_IPV6) {
         /* ----> IPv6 header <---- */
         const uint8_t *ip_ptr = pkt + sizeof(struct eth_hdr);
         size_t ip_len = len - sizeof(struct eth_hdr);
@@ -67,7 +67,7 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
         return -1;
     }
 
-    if (out->protocol == 17) {
+    if (out->protocol == IP_PROTO_UDP) {
         if (l4_len < sizeof(struct udp_hdr)) {
             return -1;
         }
@@ -76,7 +76,7 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
 
         out->src_port = ntohs(udp->src_port);
         out->dst_port = ntohs(udp->dst_port);
-    } else if (out->protocol == 6) {
+    } else if (out->protocol == IP_PROTO_TCP) {
         if (l4_len < sizeof(struct tcp_hdr)) {
             return -1;
         }
@@ -92,16 +92,16 @@ int parse_flow_key(const uint8_t *pkt, size_t len, flow_key_t *out) {
 
         out->src_port = ntohs(tcp->src_port);
         out->dst_port = ntohs(tcp->dst_port);
-    } else if (out->protocol == 1) {
+    } else if (out->protocol == IP_PROTO_ICMP) {
         if (l4_len < sizeof(struct icmp_hdr)) {
             return -1;
         }
 
         const struct icmp_hdr *icmp = (const struct icmp_hdr *)l4_ptr;
-        // Map ICMP Identifier to SPORT, and Type/Code to DPORT
+        /* Map ICMP Identifier to SPORT, and Type/Code to DPORT */
         out->src_port = ntohs(icmp->id);
-        // Pack two 8-bit values into one 16-bit integer:
-        // move `type` onto the high byte, `code` to the low byte.
+        /* Pack two 8-bit values into one 16-bit integer:
+         * move `type` onto the high byte, `code` to the low byte. */
         out->dst_port = (uint16_t)((icmp->type << 8) | icmp->code);
     } else {
         return -1;
@@ -137,17 +137,17 @@ uint32_t flow_hash(const flow_key_t *k) {
 uint16_t ipv4_checksum(const void *data, size_t len) {
     const uint16_t *ptr = (const uint16_t *)data;
 
-    // Use a 32-bit accumulator as a temporary workspace
-    // so we don't lose any carry bits while summing 16-bit words.
+    /* Use a 32-bit accumulator as a temporary workspace
+     * so we don't lose any carry bits while summing 16-bit words. */
     uint32_t sum = 0;
 
-    // "> 1", because we need 2 bytes to read uint16_t.
+    /* "> 1", because we need 2 bytes to read uint16_t. */
     while (len > 1) {
         sum += *ptr++;
         len -= 2;
     }
 
-    // Add left-over byte, if any (odd length).
+    /* Add left-over byte, if any (odd length). */
     if (len > 0) {
         sum += *(const uint8_t *)ptr;
     }
@@ -164,6 +164,6 @@ uint16_t ipv4_checksum(const void *data, size_t len) {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
 
-    // One's complement: flip all bits (0->1, 1->0).
+    /* One's complement: flip all bits (0->1, 1->0). */
     return (uint16_t)~sum;
 }

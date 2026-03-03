@@ -25,13 +25,13 @@ static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
     uint16_t ethertype = ntohs(eth->ethertype);
 
     /* Handling of ARP packets */
-    if (ethertype == 0x0806) {
+    if (ethertype == ETH_TYPE_ARP) {
         if (b->len >= sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
             struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
 
             /* Hardware Type 1 (Ethernet), Protocol 0x0800 (IPv4), HW Len 6, Proto Len 4 */
-            if (ntohs(arp->htype) == 1 && ntohs(arp->ptype) == 0x800 && arp->hlen == 6 &&
-                arp->plen == 4) {
+            if (ntohs(arp->htype) == 1 && ntohs(arp->ptype) == ETH_TYPE_IPV4 &&
+                arp->hlen == ARP_HW_LEN_ETH && arp->plen == ARP_PROTO_LEN) {
                 uint32_t spa = ntohl(arp->spa); /* Sender Protocol Address (IP) */
                 arp_update(w->arpt, spa, arp->sha);
                 log_msg(LOG_DEBUG, "Learned ARP: %08X -> %02X:%02X:%02X:%02X:%02X:%02X", spa,
@@ -45,16 +45,16 @@ static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
     }
 
     /* Handling for IPv6 NDP packets (Neighbor Advertisement/Solicitation) */
-    if (ethertype == 0x86DD) {
+    if (ethertype == ETH_TYPE_IPV6) {
         if (b->len >=
             sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) + sizeof(struct ndp_na_hdr)) {
             struct ipv6_hdr *ip6 = (struct ipv6_hdr *)(b->data + sizeof(struct eth_hdr));
 
             /* Next Header 58: ICMPv6 */
-            if (ip6->next_header == 58) {
+            if (ip6->next_header == IP_PROTO_ICMPV6) {
                 struct ndp_na_hdr *ndp = (struct ndp_na_hdr *)(b->data + sizeof(struct eth_hdr) +
                                                                sizeof(struct ipv6_hdr));
-                if (ndp->type == 135 || ndp->type == 136) {
+                if (ndp->type == ICMPV6_NEIGHBOR_SOL || ndp->type == ICMPV6_NEIGHBOR_ADV) {
                     size_t offset = sizeof(struct eth_hdr) + sizeof(struct ipv6_hdr) +
                                     sizeof(struct ndp_na_hdr);
 
@@ -64,7 +64,8 @@ static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
 
                         if (opt_len == 0 || offset + opt_len > b->len) break;
 
-                        if (ndp->type == 135 && opt_type == 1 && opt_len >= 8) {
+                        if (ndp->type == ICMPV6_NEIGHBOR_SOL && opt_type == NDP_OPT_SRC_LLADDR &&
+                            opt_len >= 8) {
                             uint8_t *mac = b->data + offset + 2;
                             ndp_update(w->ndpt, ip6->src_addr, mac);
                             log_msg(LOG_DEBUG, "Learned NDP (NS): %02x:%02x:%02x:%02x:%02x:%02x",
@@ -72,7 +73,8 @@ static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
                             break;
                         }
 
-                        if (ndp->type == 136 && opt_type == 2 && opt_len >= 8) {
+                        if (ndp->type == ICMPV6_NEIGHBOR_ADV && opt_type == NDP_OPT_TGT_LLADDR &&
+                            opt_len >= 8) {
                             uint8_t *mac = b->data + offset + 2;
                             ndp_update(w->ndpt, ndp->target, mac);
                             log_msg(LOG_DEBUG, "Learned NDP (NA): %02x:%02x:%02x:%02x:%02x:%02x",

@@ -30,7 +30,7 @@ void log_msg(log_level_t level, const char *fmt, ...) {
         return;
     }
 
-    // Timestamp
+    /* Timestamp */
     time_t now = time(NULL);
     struct tm tm_now;
     localtime_r(&now, &tm_now);
@@ -38,10 +38,10 @@ void log_msg(log_level_t level, const char *fmt, ...) {
     char tbuf[32];
     strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &tm_now);
 
-    // Print prefix
+    /* Print prefix */
     fprintf(stderr, "%s [%s] ", tbuf, level_to_string(level));
 
-    // Variadic printing
+    /* Variadic printing */
     va_list ap;
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
@@ -58,9 +58,9 @@ void log_hexdump(log_level_t level, const void *data, size_t len) {
     const unsigned char *p = (const unsigned char *)data;
 
     for (size_t i = 0; i < len; i += 16) {
-        fprintf(stderr, "%04zx  ", i); // Offset
+        fprintf(stderr, "%04zx  ", i); /* Offset */
 
-        // Hex bytes
+        /* Hex bytes */
         for (size_t j = 0; j < 16; j++) {
             if (i + j < len)
                 fprintf(stderr, "%02x  ", p[i + j]);
@@ -68,12 +68,12 @@ void log_hexdump(log_level_t level, const void *data, size_t len) {
                 fprintf(stderr, "    ");
         }
 
-        // ASCII characters
+        /* ASCII characters */
         fprintf(stderr, " |");
         for (size_t j = 0; j < 16; j++) {
             if (i + j < len) {
                 unsigned char c = p[i + j];
-                // Print printable chars, otherwise dot
+                /* Print printable chars, otherwise dot */
                 fprintf(stderr, "%c", (c >= 32 && c <= 126) ? c : '.');
             }
         }

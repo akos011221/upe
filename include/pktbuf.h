@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PKTBUF_DATA_SIZE 2048 // MTU
+#define PKTBUF_DATA_SIZE 2048 /* MTU */
 
 typedef struct pktbuf {
     uint64_t timestamp; /* TSC cycle count at RX arrival */
@@ -14,12 +14,12 @@ typedef struct pktbuf {
 } pktbuf_t;
 
 typedef struct {
-    pktbuf_t *buffers;       // Contiguous array of all buffers.
-    pktbuf_t **free_stack;   // Stack of pointers to free buffers.
-    _Atomic size_t top;      // Stack top index, modified using atomic CAS.
-    size_t capacity;         // Total number of buffers in the pool.
-    size_t buffers_mmap_len; // Size of mmap (rounded to 2MB). 0 if calloc was used.
-    bool use_hugepages;      // Whether to use hugepages (informational).
+    pktbuf_t *buffers;       /* Contiguous array of all buffers. */
+    pktbuf_t **free_stack;   /* Stack of pointers to free buffers. */
+    _Atomic size_t top;      /* Stack top index, modified using atomic CAS. */
+    size_t capacity;         /* Total number of buffers in the pool. */
+    size_t buffers_mmap_len; /* Size of mmap (rounded to 2MB). 0 if calloc was used. */
+    bool use_hugepages;      /* Whether to use hugepages (informational). */
 } pktbuf_pool_t;
 
 int pktbuf_pool_init(pktbuf_pool_t *p, size_t capacity);

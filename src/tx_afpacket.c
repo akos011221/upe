@@ -54,7 +54,7 @@ int tx_send(const tx_ctx_t *tx, const uint8_t *frame, size_t len) {
     memset(&addr, 0, sizeof(addr));
     addr.sll_family = AF_PACKET;
     addr.sll_ifindex = tx->ifindex;
-    addr.sll_halen = ETH_ALEN; // MAC address
+    addr.sll_halen = ETH_ALEN; /* MAC address */
 
     ssize_t rc = sendto(tx->sock_fd, frame, len, 0, (struct sockaddr *)&addr, sizeof(addr));
 
