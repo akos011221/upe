@@ -151,6 +151,12 @@ int rx_start(rx_ctx_t *rx) {
         // It's guaranteed to run at least once every milisecond (1ms timeout coming from
         // pcap_open_live)
         flush_rx_buffers(rx);
+
+        // EOF on pcap file
+        if (rc == 0 && rx->pcap_file) {
+            log_msg(LOG_INFO, "Pcap file done");
+            break;
+        }
     }
 
     pcap_close(g_pcap);
