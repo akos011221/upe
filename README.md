@@ -1,101 +1,148 @@
-# upe - Userspace Packet Engine
+upe(7)                             Userspace Tools                             upe(7)
 
-Implements Kernel bypass and pulls the raw packets into the Userspace directly.
-This way, the application (not the OS) decides what to do with the packet.
+NAME
+       upe - Userspace Packet Engine (kernel-bypass packet processing)
 
-Linux only.
+SYNOPSIS
+       upe --iface <name> --rules <file> [--verbose <0..2>] [--duration <sec>]
 
-## How it works
+       upe --pcap <file> --rules <file> [--verbose <0..2>] [--duration <sec>]
 
-NIC -> RX Thread -> SPSC Rings -> Worker Threads -> TX (AF_PACKET)
+DESCRIPTION
+       upe is a Linux-only userspace packet processing engine.
 
-- RX thread captures packets from a live interface (AF_PACKET) or a pcap file
-- Software RSS hashes the 5-tuple, distributes the packets to the lock-free SPSC rings
-- Worker threads pop packets in bursts, matches against rules, then based on that forward or drop
-- TX batches outgoing frames
-- Stats thread responsible for the observability, it aggregates per-rule counters and latency histograms every 1s
+       It pulls raw packets directly into userspace using AF_PACKET and
+       implements a software pipeline where the application — not the OS
+       network stack — decides how packets are handled.
 
-For details on the design decisions, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+       Designed for:
+           * low-latency packet processing
+           * lock-free multi-threaded pipelines
+           * controlled forwarding and filtering
+           * observability and benchmarking
 
-## Features
+ARCHITECTURE
+       High-level data path:
 
-- Lock-free packet buffer pool (CAS-based, thread-local caching)
-- SPSC ring buffers between RX and workers
-- IPv4 & IPv6 support
-- Rule matching from INI config file
-- ARP & NDP learning
-- TTL/hop-limit decrement with cheecksum recalculation
-- Per-packet latency measurement via rdtsc
-- CPU affinity pinning
-- 2MB huge page support (if available)
+           NIC
+             |
+             v
+           RX Thread
+             |
+             v
+           SPSC Rings (lock-free)
+             |
+             v
+           Worker Threads
+             |
+             v
+           TX (AF_PACKET)
 
-## Prerequisites
+       Pipeline stages:
 
-- Linux (tested on Ubuntu 24.04.3 LTS)
-- CMake (>= 3.16)
-- C11-compatible GCC or Clang
-- libpcap
-- Root privileges
+       RX Thread
+              Captures packets from:
+                  * Live interface (AF_PACKET)
+                  * PCAP file
 
-## Build
+              Applies software RSS (5-tuple hash) and distributes packets
+              across worker threads via SPSC rings.
 
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-```
+       Worker Threads
+              * Burst-pop packets from rings
+              * Match packets against rules (INI-based)
+              * Forward or drop based on rule result
+              * Decrement TTL / Hop-Limit and recalculate checksum
 
-### Debug build
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-```
+       TX Path
+              * Batches outgoing frames
+              * Sends via AF_PACKET
 
-## Usage
+       Stats Thread
+              * Aggregates per-rule counters
+              * Maintains latency histograms
+              * Updates every 1 second
 
-Capture from a live interface:
+       Detailed design documentation:
+              docs/ARCHITECTURE.md
 
-```bash
-sudo ./build/upe --iface eth0 --rules rules.example --verbose 1
-```
+FEATURES
+       * Lock-free packet buffer pool (CAS-based, thread-local caching)
+       * Lock-free SPSC ring buffers (RX -> workers)
+       * IPv4 and IPv6 support
+       * INI-based rule matching
+       * ARP and NDP learning
+       * TTL / Hop-Limit decrement with checksum recalculation
+       * Per-packet latency measurement (rdtsc)
+       * CPU affinity pinning
+       * 2MB huge page support (when available)
 
-Read from a pcap file:
+REQUIREMENTS
+       * Linux (tested on Ubuntu 24.04.3 LTS)
+       * CMake >= 3.16
+       * C11-compatible GCC or Clang
+       * libpcap
+       * Root privileges
 
-```bash
-sudo ./build/upe --pcap dump.pcap --rules rules.example
-```
+BUILD
+       Release build:
 
-## CLI flags
+           cmake -B build -DCMAKE_BUILD_TYPE=Release
+           cmake --build build
 
-| Flag             | Description                                      |
-|------------------|--------------------------------------------------|
-| --iface <name>   | Network interface to capture from                |
-| --pcap <file>    | Read packets from a pcap file                    |
-| --rules <file>   | Rule config file (INI format)                    |
-| --verbose <0..2> | 0 = warnings only, 1 = info (default), 2 = debug |
-| --duration <sec> | Stop after N seconds (0 = run until Ctrl-C)      |
+       Debug build:
 
-## Tests
+           cmake -B build -DCMAKE_BUILD_TYPE=Debug
+           cmake --build build
 
-Unit tests:
+USAGE
+       Capture from live interface:
 
-```bash
-./build/test_suite
-```
+           sudo ./build/upe --iface eth0 --rules rules.example --verbose 1
 
-End-to-end smoke test:
+       Read from PCAP file:
 
-```bash
-sudo tests/smoke-test.sh
-```
+           sudo ./build/upe --pcap dump.pcap --rules rules.example
 
-Throughput benchmark:
+OPTIONS
+       --iface <name>
+              Network interface to capture from.
 
-```bash
-./build/benchmark_throughput --workers 2 --json -o out.json
-```
+       --pcap <file>
+              Read packets from a PCAP file.
 
-Packet buffer pool benchmark:
+       --rules <file>
+              Rule configuration file (INI format).
 
-```bash
-./build/benchmark_pktbuf --threads 2 --warmup
-```
+       --verbose <0..2>
+              Logging verbosity:
+                  0  warnings only
+                  1  info (default)
+                  2  debug
+
+       --duration <sec>
+              Stop after N seconds.
+              0 means run until interrupted (Ctrl-C).
+
+TESTING
+       Unit tests:
+
+           ./build/test_suite
+
+       End-to-end smoke test:
+
+           sudo tests/smoke-test.sh
+
+BENCHMARKS
+       Throughput benchmark:
+
+           ./build/benchmark_throughput --workers 2 --json -o out.json
+
+       Packet buffer pool benchmark:
+
+           ./build/benchmark_pktbuf --threads 2 --warmup
+
+NOTES
+       * Root privileges are required for raw socket access.
+       * Designed for experimentation with userspace networking pipelines.
+       * Linux-only.
