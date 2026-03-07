@@ -26,22 +26,32 @@ static bool handle_control_packet(worker_t *w, pktbuf_t *b) {
 
     /* Handling of ARP packets */
     if (ethertype == ETH_TYPE_ARP) {
-        if (b->len >= sizeof(struct eth_hdr) + sizeof(struct arp_hdr)) {
-            struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
+        struct arp_hdr *arp = (struct arp_hdr *)(b->data + sizeof(struct eth_hdr));
 
-            /* Hardware Type 1 (Ethernet), Protocol 0x0800 (IPv4), HW Len 6, Proto Len 4 */
-            if (ntohs(arp->htype) == 1 && ntohs(arp->ptype) == ETH_TYPE_IPV4 &&
-                arp->hlen == ARP_HW_LEN_ETH && arp->plen == ARP_PROTO_LEN) {
-                uint32_t spa = ntohl(arp->spa); /* Sender Protocol Address (IP) */
-                arp_update(w->arpt, spa, arp->sha);
-                log_msg(LOG_DEBUG, "Learned ARP: %08X -> %02X:%02X:%02X:%02X:%02X:%02X", spa,
-                        arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4],
-                        arp->sha[5]);
+        if (ntohs(arp->htype) == ARP_HW_ETHERNET && ntohs(arp->ptype) == ETH_TYPE_IPV4 &&
+            arp->hlen == ARP_HW_LEN_ETH && arp->plen == ARP_PROTO_LEN) {
+            /* Learn the sender's MAC/IP mapping */
+            uint32_t spa = ntohl(arp->spa);
+            arp_update(w->arpt, spa, arp->sha);
+            log_msg(LOG_DEBUG, "Learned ARP: %08X -> %02X:%02X:%02X:%02X:%02X:%02X", spa,
+                    arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4], arp->sha[5]);
+
+            /* If ARP request is for local IP: Re-use incoming buffer to build a reply in-place */
+            if (ntohs(arp->op) == ARP_OP_REQUEST && w->tx->ip4_addr != 0 &&
+                ntohl(arp->tpa) == w->tx->ip4_addr) {
+                memcpy(eth->dst, eth->src, 6);
+                memcpy(eth->src, w->tx->eth_addr, 6);
+
+                arp->op = htons(ARP_OP_REPLY);
+                memcpy(arp->tha, arp->sha, 6);
+                arp->tpa = arp->spa;
+                memcpy(arp->sha, w->tx->eth_addr, 6);
+                arp->spa = htonl(w->tx->ip4_addr);
+
+                tx_send(w->tx, b->data, b->len);
+                log_msg(LOG_DEBUG, "Sent ARP reply for %08X", w->tx->ip4_addr);
             }
         }
-        /* Consume the packet */
-        pktbuf_free(w->pool, b);
-        return true;
     }
 
     /* Handling for IPv6 NDP packets (Neighbor Advertisement/Solicitation) */
@@ -220,8 +230,8 @@ static void process_packet(worker_t *w, pktbuf_t *b) {
             }
         }
 
-        /* Latency is recorded before queuing for TX (sendmmsg() is kernel/NIC latency, should not
-         * be included in the dataplane latency.)*/
+        /* Latency is recorded before queuing for TX (sendmmsg() is kernel/NIC latency, should
+         * not be included in the dataplane latency.)*/
         if (b->timestamp > 0) {
             latency_record(&w->latency_hist, rdtsc() - b->timestamp, g_cycles_per_ns);
         }

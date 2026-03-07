@@ -40,6 +40,17 @@ int tx_init(tx_ctx_t *tx, const char *out_iface) {
         return -1;
     }
 
+    /* Get IPv4 address of the interface */
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, out_iface, IFNAMSIZ - 1);
+    if (ioctl(fd, SIOCGIFADDR, &ifr) == 0) {
+        struct sockaddr_in *sin = (struct sockaddr_in *)&ifr.ifr_addr;
+        tx->ip4_addr = ntohl(sin->sin_addr.s_addr);
+    } else {
+        log_msg(LOG_WARN, "ioctl(SIOCGIFADDR) failed (ARP replies disabled): %s", strerror(errno));
+        tx->ip4_addr = 0;
+    }
+
     tx->sock_fd = fd;
     tx->ifindex = ifindex;
     memcpy(tx->eth_addr, ifr.ifr_hwaddr.sa_data, 6);

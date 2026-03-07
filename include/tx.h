@@ -9,7 +9,8 @@
 typedef struct {
     int sock_fd;
     int ifindex;
-    uint8_t eth_addr[6]; /* TX interface's MAC */
+    uint8_t eth_addr[6];
+    uint32_t ip4_addr;
 } tx_ctx_t;
 
 /* Initialize a TX context bound to an interface. Returns 0 on success, -1 on failure. */
