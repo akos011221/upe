@@ -39,6 +39,7 @@ int tx_init(tx_ctx_t *tx, const char *out_iface) {
         close(fd);
         return -1;
     }
+    memcpy(tx->eth_addr, ifr.ifr_hwaddr.sa_data, 6);
 
     /* Get IPv4 address of the interface */
     memset(&ifr, 0, sizeof(ifr));
@@ -53,7 +54,6 @@ int tx_init(tx_ctx_t *tx, const char *out_iface) {
 
     tx->sock_fd = fd;
     tx->ifindex = ifindex;
-    memcpy(tx->eth_addr, ifr.ifr_hwaddr.sa_data, 6);
     return 0;
 }
 
