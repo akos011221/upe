@@ -23,11 +23,17 @@
 #include "worker.h"
 
 volatile sig_atomic_t g_stop = 0;
+volatile sig_atomic_t g_reload = 0;
 
 static void handle_signal(int sig) {
     (void)sig;
     g_stop = 1;
     rx_stop();
+}
+
+static void handle_sighup(int sig) {
+    (void)sig;
+    g_reload = 1;
 }
 
 static void install_signal_handlers(void) {
@@ -45,6 +51,12 @@ static void install_signal_handlers(void) {
     }
     if (sigaction(SIGTERM, &sa, NULL) != 0) {
         log_msg(LOG_ERROR, "sigaction(sigterm) failed: %s", strerror(errno));
+        exit(1);
+    }
+
+    sa.sa_handler = handle_sighup;
+    if (sigaction(SIGHUP, &sa, NULL) != 0) {
+        log_msg(LOG_ERROR, "sigaction(sighup) failed: %s", strerror(errno));
         exit(1);
     }
 }
@@ -165,6 +177,7 @@ typedef struct {
     int num_workers;
     const rule_table_t *rt;
     int core_id;
+    const char *rules_file;
 } stats_ctx_t;
 
 static void *stats_thread_func(void *arg) {
@@ -180,6 +193,74 @@ static void *stats_thread_func(void *arg) {
 
     while (!g_stop) {
         sleep(1); /* Stats thread wakes up every second. */
+
+        if (g_reload) {
+            g_reload = 0;
+
+            if (!ctx->rules_file) {
+                log_msg(LOG_WARN, "SIGHUP received, but no rules file found");
+            } else {
+                rule_table_t *new_rt = malloc(sizeof(rule_table_t));
+                if (!new_rt) {
+                    log_msg(LOG_ERROR, "Rule reload: malloc failed");
+                    goto reload_done;
+                }
+                rule_table_init(new_rt, 1024);
+
+                if (rule_config_load(ctx->rules_file, new_rt) != 0) {
+                    log_msg(LOG_ERROR, "Rule reload: failed to parse %s, using old rules",
+                            ctx->rules_file);
+                    rule_table_destroy(new_rt);
+                    free(new_rt);
+                    goto reload_done;
+                }
+
+                rule_stat_t **new_stats = calloc((size_t)ctx->num_workers, sizeof(rule_stat_t *));
+                if (!new_stats) {
+                    log_msg(LOG_ERROR, "Rule reload: stats alloc failed");
+                    rule_table_destroy(new_rt);
+                    free(new_rt);
+                    goto reload_done;
+                }
+                for (int i = 0; i < ctx->num_workers; i++) {
+                    new_stats[i] = calloc(new_rt->capacity, sizeof(rule_stat_t));
+                    if (!new_stats[i]) {
+                        log_msg(LOG_ERROR, "Rule reload: stats alloc failed for worker %d", i);
+                        for (int j = 0; j < i; j++) {
+                            free(new_stats[j]);
+                        }
+                        free(new_stats);
+                        rule_table_destroy(new_rt);
+                        free(new_rt);
+                        goto reload_done;
+                    }
+                }
+
+                const rule_table_t *old_rt = ctx->rt;
+                rule_stat_t **old_stats = calloc((size_t)ctx->num_workers, sizeof(rule_stat_t *));
+                for (int i = 0; i < ctx->num_workers; i++) {
+                    old_stats[i] = ctx->workers[i].rule_stats;
+                    ctx->workers[i].rule_stats = new_stats[i];
+                    ctx->workers[i].rt = new_rt;
+                }
+                ctx->rt = new_rt;
+
+                /* Grace period waiting for all workers to finish procesing with old table. */
+                sleep(1);
+
+                rule_table_destroy((rule_table_t *)old_rt);
+                free((void *)old_rt);
+                for (int i = 0; i < ctx->num_workers; i++) {
+                    free(old_stats[i]);
+                }
+                free(old_stats);
+                free(new_stats);
+
+                log_msg(LOG_INFO, "Rules reloaded: %zu rules from %s", new_rt->count,
+                        ctx->rules_file);
+            }
+        reload_done:;
+        }
 
         printf("\033[2J\033[H");
         printf("=== UPE Statistics ===\n");
@@ -313,11 +394,15 @@ int main(int argc, char **argv) {
     }
 
     /* IV. Init rule table, load rules */
-    rule_table_t rt;
-    rule_table_init(&rt, 1024);
+    rule_table_t *rt = malloc(sizeof(rule_table_t));
+    if (!rt) {
+        log_msg(LOG_ERROR, "rule_table_init malloc failed");
+        return 1;
+    }
+    rule_table_init(rt, 1024);
     if (cfg.rules_file) {
-        if (rule_config_load(cfg.rules_file, &rt) != 0) {
-            log_msg(LOG_ERROR, "Faield to load rules from %s", cfg.rules_file);
+        if (rule_config_load(cfg.rules_file, rt) != 0) {
+            log_msg(LOG_ERROR, "Failed to load rules from %s", cfg.rules_file);
             return 1;
         }
     }
@@ -343,7 +428,7 @@ int main(int argc, char **argv) {
     worker_set_tsc_calibration(cycles_per_ns);
 
     for (int i = 0; i < WORKERS_NUM; i++) {
-        worker_init(&workers[i], i, worker_cores[i], &rings[i], &pool, &rt, &tx, &arpt, &ndpt);
+        worker_init(&workers[i], i, worker_cores[i], &rings[i], &pool, rt, &tx, &arpt, &ndpt);
 
         if (worker_start(&workers[i]) != 0) {
             log_msg(LOG_ERROR, "worker_start(%d) failed", i);
@@ -370,8 +455,11 @@ int main(int argc, char **argv) {
 
     /* Start stats thread */
     pthread_t stats_th;
-    stats_ctx_t stats_ctx = {
-        .workers = workers, .num_workers = WORKERS_NUM, .rt = &rt, .core_id = stats_core};
+    stats_ctx_t stats_ctx = {.workers = workers,
+                             .num_workers = WORKERS_NUM,
+                             .rt = rt,
+                             .core_id = stats_core,
+                             .rules_file = cfg.rules_file};
     pthread_create(&stats_th, NULL, stats_thread_func, &stats_ctx);
 
     rx_start(&rx);
@@ -395,9 +483,11 @@ int main(int argc, char **argv) {
     free(rings);
 
     pktbuf_pool_destroy(&pool);
-    rule_table_destroy(&rt);
     arp_table_destroy(&arpt);
     ndp_table_destroy(&ndpt);
+    /* rt probably has been replaced by SIGHUP reload, so read the current pointer */
+    rule_table_destroy((rule_table_t *)stats_ctx.rt);
+    free((void *)stats_ctx.rt);
     for (int i = 0; i < WORKERS_NUM; i++) {
         worker_destroy(&workers[i]);
     }
