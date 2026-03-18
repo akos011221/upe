@@ -4,6 +4,9 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdalign.h>
+
+#define CACHE_LINE_SIZE 64
 
 typedef struct {
     void **slots;    /* void, so ring doesn't have to know about pktbuf_t* */
@@ -11,8 +14,8 @@ typedef struct {
     size_t mask;
 
     /* producer writes at head, consumer reads at tail */
-    atomic_size_t head;
-    atomic_size_t tail;
+    alignas(CACHE_LINE_SIZE) atomic_size_t head;
+    alignas(CACHE_LINE_SIZE) atomic_size_t tail;
 } spsc_ring_t;
 
 int ring_init(spsc_ring_t *r, size_t capacity);
