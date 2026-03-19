@@ -1,5 +1,5 @@
 ```text
-upe(7)                             Userspace Tools                             upe(7)
+upe(7)                             Userspace Networking                           upe(7)
 
 NAME
        upe - Userspace Packet Engine (kernel-bypass packet processing)
