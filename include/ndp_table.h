@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include <time.h>
 
+/* Entries must be refreshed within this window or will be removed. */
+#define NDP_TIMEOUT_SEC 300
+
 typedef struct {
     uint8_t ip[16];
     uint8_t mac[6];
@@ -31,5 +34,12 @@ void ndp_update(ndp_table_t *t, const uint8_t *ip, const uint8_t *mac);
         Return true if found, false otherwise.
 */
 bool ndp_get_mac(ndp_table_t *t, const uint8_t *ip, uint8_t *out_mac);
+
+/*
+    Remove all entries that have update_at older than NDP_TIMEOUT_SEC seconds
+    relative to `now`.
+        Returns the number of entries that were evicted.
+*/
+size_t ndp_expire(ndp_table_t *t, time_t now);
 
 #endif
