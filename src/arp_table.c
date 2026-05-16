@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ARP_TIMEOUT_SEC 300
-
 int arp_table_init(arp_table_t *t, size_t capacity) {
     if (!t || capacity == 0 || (capacity & (capacity - 1)) != 0) return -1;
 
@@ -79,4 +77,61 @@ bool arp_get_mac(arp_table_t *t, uint32_t ip, uint8_t *out_mac) {
     pthread_rwlock_unlock(&t->lock);
 
     return false;
+}
+
+size_t arp_expire(arp_table_t *t, time_t now) {
+    if (!t) return 0;
+
+    size_t evicted = 0;
+
+    pthread_rwlock_wrlock(&t->lock);
+
+    for (size_t i = 0; i < t->capacity; i++) {
+        if (!t->entries[i].valid) continue;
+
+        if (now - t->entries[i].update_at < (time_t)ARP_TIMEOUT_SEC) continue;
+
+        /* Mark the slot empty, then rehash the cluster that follows it.
+         *
+         * Why: open-addressing lookup stops at the first empty slot. If we
+         * blank a slot in the middle of the chain, entries probed past it become
+         * unreachable. We fix this by shifting each subsequent entry in the same
+         * cluster back into its natural position.
+        */
+        t->entries[i].valid = false;
+        evicted++;
+
+        size_t hole = i;
+        size_t j    = (i + 1) & (t->capacity - 1);
+
+        while(t->entries[j].valid) {
+            /* Where is this entry ideally? */
+            size_t ideal = t->entries[j].ip & (t->capacity - 1);
+
+            /* If `ideal` falls in (hole..j], moving it to `hole`
+             * keeps it at or before its ideal slot.
+            */
+            bool should_move;
+            if (hole <= j) {
+                should_move = (ideal <= hole) || (ideal > j);
+            } else {
+                /* Probe chain wrapped around the end of the array. */
+                should_move = (ideal <= hole) && (ideal > j);
+            }
+
+            if (should_move) {
+                t->entries[hole] = t->entries[j];
+                t->entries[j].valid = false;
+                hole = j;
+            }
+
+            j = (j + 1) & (t->capacity - 1);
+
+            /* An empty slot marks the end of this cluster. */
+            if (!t->entries[j].valid) break;
+        }
+    }
+
+    pthread_rwlock_unlock(&t->lock);
+    return evicted;
 }
