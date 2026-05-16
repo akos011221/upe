@@ -24,8 +24,6 @@
 
 #define NEIGHBOUR_SWEEP_INTERVAL_SEC 300
 
-#define NEIGHBOUR_SWEEP_INTERVAL_SEC 300
-
 volatile sig_atomic_t g_stop = 0;
 volatile sig_atomic_t g_reload = 0;
 
