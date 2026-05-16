@@ -24,6 +24,8 @@
 
 #define NEIGHBOUR_SWEEP_INTERVAL_SEC 300
 
+#define NEIGHBOUR_SWEEP_INTERVAL_SEC 300
+
 volatile sig_atomic_t g_stop = 0;
 volatile sig_atomic_t g_reload = 0;
 
@@ -197,6 +199,21 @@ static void *stats_thread_func(void *arg) {
 
     while (!g_stop) {
         sleep(1); /* Stats thread wakes up every second. */
+
+        /* Sweep the ARP and NDP tables for stale entries once per
+         * NEIGHBOUR_SWEEP_INTERVAL_SEC seconds. Each table applies its own
+         * timeout (ARP_TIMEOUT_SEC / NDP_TIMEOUT_SEC) internally.
+        */
+        static int expire_ticks = 0;
+        if (++expire_ticks >= NEIGHBOUR_SWEEP_INTERVAL_SEC) {
+            expire_ticks = 0;
+            time_t now = time(NULL);
+            size_t a = arp_expire(ctx->arpt, now);
+            size_t n = ndp_expire(ctx->ndpt, now);
+            if (a || n) {
+                log_msg(LOG_INFO, "Neighbour expiry: removed %zu ARP, %zu NDP entries", a, n);
+            }
+        }
 
         /* Sweep the ARP and NDP tables for stale entries once per
          * NEIGHBOUR_SWEEP_INTERVAL_SEC seconds. Each table applies its own
