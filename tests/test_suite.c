@@ -436,6 +436,89 @@ int test_ndp_table(void) {
     return 0;
 }
 
+// --- ARP expiry tests ---
+int test_arp_expiry(void) {
+    arp_table_t arpt;
+    TEST_ASSERT(arp_table_init(&arpt, 16) == 0);
+
+    uint32_t ip1 = 0x0A000001;
+    uint32_t ip2 = 0x0A000002;
+    uint8_t mac1[6] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    uint8_t mac2[6] = {0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+
+    arp_update(&arpt, ip1, mac1);
+    arp_update(&arpt, ip2, mac2);
+
+    // Test 1) Nothing expires when called right after insertion.
+    size_t evicted = arp_expire(&arpt, time(NULL));
+    TEST_ASSERT(evicted == 0);
+
+    uint8_t out[6];
+    TEST_ASSERT(arp_get_mac(&arpt, ip1, out) == true);
+    TEST_ASSERT(arp_get_mac(&arpt, ip2, out) == true);
+
+    // Test 2) Backdate ip1's timestamp to simulate expired.
+    size_t idx1 = ip1 & (arpt.capacity - 1);
+    for (size_t i = 0; i < arpt.capacity; i++) {
+        size_t s = (idx1 + i) & (arpt.capacity - 1);
+        if (arpt.entries[s].valid && arpt.entries[s].ip == ip1) {
+            arpt.entries[s].update_at -= (ARP_TIMEOUT_SEC + 1);
+            break;
+        }
+    }
+
+    evicted = arp_expire(&arpt, time(NULL));
+    TEST_ASSERT(evicted == 1);
+
+    // ip1 should be gone, ip2 not.
+    TEST_ASSERT(arp_get_mac(&arpt, ip1, out) == false);
+    TEST_ASSERT(arp_get_mac(&arpt, ip2, out) == true);
+    TEST_ASSERT(memcmp(out, mac2, 6) == 0);
+
+    arp_table_destroy(&arpt);
+    return 0;
+}
+
+// --- NDP expiry tests ---
+int test_ndp_expiry(void) {
+    ndp_table_t t;
+    TEST_ASSERT(ndp_table_init(&t, 16) == 0);
+
+    uint8_t ip1[16] = {0x20,0x01,0x0d,0xb8,0,0,0,0,0,0,0,0,0,0,0,1};
+    uint8_t ip2[16] = {0x20,0x01,0x0d,0xb8,0,0,0,0,0,0,0,0,0,0,0,2};
+    uint8_t mac1[6] = {0xaa,0xbb,0xcc,0xdd,0xee,0xff};
+    uint8_t mac2[6] = {0x11,0x22,0x33,0x44,0x55,0x66};
+
+    ndp_update(&t, ip1, mac1);
+    ndp_update(&t, ip2, mac2);
+
+    // Test 1) Should not expire immediately.
+    size_t evicted = ndp_expire(&t, time(NULL));
+    TEST_ASSERT(evicted == 0);
+
+    uint8_t out[6];
+    TEST_ASSERT(ndp_get_mac(&t, ip1, out) == true);
+    TEST_ASSERT(ndp_get_mac(&t, ip2, out) == true);
+
+    // Test 2) Backdate ip1's timestamp to simulate expired.
+    for (size_t i = 0; i < t.capacity; i++) {
+        if (t.entries[i].valid && memcmp(t.entries[i].ip, ip1, 16) == 0) {
+            t.entries[i].update_at -= (NDP_TIMEOUT_SEC + 1);
+            break;
+        }
+    }
+
+    evicted = ndp_expire(&t, time(NULL));
+    TEST_ASSERT(evicted == 1);
+
+    TEST_ASSERT(ndp_get_mac(&t, ip1, out) == false);
+    TEST_ASSERT(ndp_get_mac(&t, ip2, out) == true);
+    TEST_ASSERT(memcmp(out, mac2, 6) == 0);
+
+    ndp_table_destroy(&t);
+    return 0;
+}
+
 // --- IPv6 Rule Matching related tests ---
 int test_ipv6_rule_matching(void) {
     rule_table_t rt;
@@ -561,6 +644,8 @@ int main(void) {
     RUN_TEST(test_pktbuf_pool);
     RUN_TEST(test_arp_table);
     RUN_TEST(test_ndp_table);
+    RUN_TEST(test_arp_expiry);
+    RUN_TEST(test_ndp_expiry);
     RUN_TEST(test_ipv6_rule_matching);
     RUN_TEST(test_rule_config_load);
     return 0;

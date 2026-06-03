@@ -84,3 +84,47 @@ bool ndp_get_mac(ndp_table_t *t, const uint8_t *ip, uint8_t *out_mac) {
     pthread_rwlock_unlock(&t->lock);
     return false;
 }
+
+size_t ndp_expire(ndp_table_t *t, time_t now) {
+    if (!t) return 0;
+
+    size_t evicted = 0;
+
+    pthread_rwlock_wrlock(&t->lock);
+
+    for (size_t i = 0; i < t->capacity; i++) {
+        if (!t->entries[i].valid) continue;
+
+        if (now - t->entries[i].update_at < (time_t)NDP_TIMEOUT_SEC) continue;
+
+        t->entries[i].valid = false;
+        evicted++;
+
+        size_t hole = i;
+        size_t j    = (i + 1) & (t->capacity - 1);
+
+        while (t->entries[j].valid) {
+            size_t ideal = hash_ipv6(t->entries[j].ip, t->capacity);
+
+            bool should_move;
+            if (hole <= j) {
+                should_move = (ideal <= hole) || (ideal > j);
+            } else {
+                should_move = (ideal <= hole) && (ideal > j);
+            }
+
+            if (should_move) {
+                t->entries[hole] = t->entries[j];
+                t->entries[j].valid = false;
+                hole = j;
+            }
+
+            j = (j + 1) & (t->capacity - 1);
+
+            if (!t->entries[j].valid) break;
+        }
+    }
+
+    pthread_rwlock_unlock(&t->lock);
+    return evicted;
+}

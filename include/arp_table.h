@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include <time.h>
 
+/* Entries must be refreshed within this window or will be removed. */
+#define ARP_TIMEOUT_SEC 300
+
 typedef struct {
     uint32_t ip;
     uint8_t mac[6];
@@ -31,5 +34,12 @@ void arp_update(arp_table_t *t, uint32_t ip, const uint8_t *mac);
         Return true if found, false otherwise.
 */
 bool arp_get_mac(arp_table_t *t, uint32_t ip, uint8_t *out_mac);
+
+/*
+    Remove all entries that have update_at older than ARP_TIMEOUT_SEC seconds
+    relative to `now`.
+        Returns the number of entries that were evicted.
+*/
+size_t arp_expire(arp_table_t *t, time_t now);
 
 #endif
