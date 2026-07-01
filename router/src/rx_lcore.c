@@ -124,3 +124,43 @@ static void forward_mbuf(rx_lcore_ctx_t *ctx,
         }
     }
 }
+
+int rx_lcore_main(void *arg) {
+    rx_lcore_ctx_t *ctx = (rx_lcore_ctx_t *)arg;
+
+    log_msg(LOG_INFO, "RX lcore %u started", rte_lcore_id());
+
+    struct rte_mbuf *rx_mbufs[BURST_SIZE];
+
+    while (!ctx->stop) {
+
+        for (uint16_t port = 0; port < NUM_PORTS; port++) {
+
+            uint16_t nb_rx = rte_eth_rx_burst(port, 0,
+                                              rx_mbufs, BURST_SIZE);
+            
+            if (nb_rx == 0) /* No packets on this port */
+                continue;
+            
+            uint64_t ingress_tsc = rdtsc();
+
+            for (uint16_t i = 0; i < nb_rx; i++) {
+                forward_mbuf(ctx, rx_mbufs[i], port, ingress_tsc);
+            }
+
+            for (uint16_t p = 0; p < NUM_PORTS; p++) {
+                flush_tx_buffer(p, &ctx->tx_buffers[p]);
+            }
+        }
+    }
+
+    log_msg(LOG_INFO, "RX lcore %u stopping, will flush TX buffers...",
+            rte_lcore_id());
+    
+    for (uint16_t p = 0; p < NUM_PORTS; p++) {
+        flush_tx_buffer(p, &ctx->tx_buffers[p]);
+    }
+
+    log_msg(LOG_INFO, "RX lcore %u stopped", rte_lcore_id());
+    return 0;
+}
