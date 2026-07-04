@@ -202,12 +202,12 @@ static int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
     } while (wait_count < max_wait);
 
     /* Link still down after timeout */
-    log_msg(LOG_WARN, "Port %u: Link down after %u second timeout,
-            continuing anyway", port_id, link_wait_sec);
+    log_msg(LOG_WARN, "Port %u: Link down after %u second timeout, continuing anyway",
+            port_id, link_wait_sec);
     return 0;
 }
 
-static void print_stats(const rx_lcore_ctx_t *ctx, double cycles_per_ns) {
+static void print_stats(const rx_lcore_ctx_t *ctx) {
     /* Print latency histogram for each port */
     for (uint16_t port = 0; port < NUM_PORTS; port++) {
         const latency_histogram_t *hist = &ctx->latency_hist[port];
@@ -405,7 +405,7 @@ int main(int argc, char **argv) {
             }
         } else {
             /* Normal mode */
-            print_stats(&g_router.rx_ctx, cycles_per_ns);
+            print_stats(&g_router.rx_ctx);
         }
     }
 
@@ -456,13 +456,13 @@ int main(int argc, char **argv) {
         printf("}\n");
 
         if (pps < 1000000.0) {
-            log_msg(LOG_WARN, "Throughput %.0f pps is below 1 Mpps floor,
-                    need investigation...", pps);
+            log_msg(LOG_WARN, "Throughput %.0f pps is below 1 Mpps floor, need investigation...",
+                    pps);
         }
     } else {
         /* Normal mode: just print final stats */
         log_msg(LOG_INFO, "Final statistics:");
-        print_stats(&g_router.rx_ctx, cycles_per_ns);
+        print_stats(&g_router.rx_ctx);
     }
 
     /* Stop and close ports */
