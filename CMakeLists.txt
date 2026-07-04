@@ -76,3 +76,42 @@ target_link_libraries(benchmark_pktbuf pthread m)
 add_executable(benchmark_throughput tests/benchmark_throughput.c src/pktbuf.c src/ring.c src/rule_table.c src/worker.c src/parser.c src/log.c src/arp_table.c src/ndp_table.c src/affinity.c src/benchmark_test.c src/log.c src/latency.c)
 target_include_directories(benchmark_throughput PRIVATE include)
 target_link_libraries(benchmark_throughput pthread m)
+
+
+# Router--------–>
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(DPDK REQUIRED libdpdk)
+
+add_executable(upe-router
+  router/src/main.c
+  router/src/mac_table.c
+  router/src/rx_lcore.c
+  src/latency.c
+  src/log.c
+)
+
+target_include_directories(upe-router PRIVATE
+  include
+  router/include
+  ${DPDK_INCLUDE_DIRS}
+)
+
+target_compile_options(upe-router PRIVATE
+  ${DPDK_CFLAGS_OTHER}
+  -Wall
+  -Wextra
+  -Wno-pedantic
+)
+
+target_link_libraries(upe-router PRIVATE
+  ${DPDK_LIBRARIES}
+  pthread
+  m
+  dl
+  numa
+)
+
+target_link_options(upe-router PRIVATE
+  ${DPDK_LDFLAGS_OTHER}
+)
