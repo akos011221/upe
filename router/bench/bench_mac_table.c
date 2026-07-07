@@ -55,6 +55,7 @@ static void make_broadcast_mac(uint8_t mac[MAC_ADDR_LEN]) {
  *
  * For any unicast MAC M inserted at TSC T on port P,
  * mac_table_lookup(M, T) must return true and out_port == P.
+ *
  * -----------------------------------------------------------------------
  */
 static void test_insert_lookup_roundtrip(void) {
