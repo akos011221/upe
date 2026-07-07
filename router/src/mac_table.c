@@ -1,6 +1,6 @@
 #include "mac_table.h"
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
 static uint32_t mac_hash(const uint8_t mac[MAC_ADDR_LEN]) {
     /* FNV-1a hash */
@@ -13,21 +13,18 @@ static uint32_t mac_hash(const uint8_t mac[MAC_ADDR_LEN]) {
 }
 
 /* Compare two MAC addresses */
-static bool mac_equal(const uint8_t mac1[MAC_ADDR_LEN],
-                      const uint8_t mac2[MAC_ADDR_LEN]) {
+static bool mac_equal(const uint8_t mac1[MAC_ADDR_LEN], const uint8_t mac2[MAC_ADDR_LEN]) {
     return memcmp(mac1, mac2, MAC_ADDR_LEN) == 0;
 }
 
-void mac_table_init(mac_table_t *table, uint32_t aging_timeout_sec,
-                    double cycles_per_ns) {
+void mac_table_init(mac_table_t *table, uint32_t aging_timeout_sec, double cycles_per_ns) {
     memset(table, 0, sizeof(*table));
     /* Convert seconds to TSC cycles */
-    table->aging_timeout_tsc = (uint64_t)(aging_timeout_sec *
-                                1000000000.0 * cycles_per_ns);
+    table->aging_timeout_tsc = (uint64_t)(aging_timeout_sec * 1000000000.0 * cycles_per_ns);
 }
 
-bool mac_table_insert(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN],
-                      uint16_t port_id, uint64_t current_tsc) {
+bool mac_table_insert(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN], uint16_t port_id,
+                      uint64_t current_tsc) {
     uint32_t hash = mac_hash(mac);
     uint32_t index = hash & (MAC_TABLE_CAPACITY - 1);
 
@@ -36,9 +33,9 @@ bool mac_table_insert(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN],
         mac_entry_t *entry = &table->entries[slot];
 
         /* Two birds, one stone: with this we also clean up expired slots */
-        bool expired = entry->occupied &&
-                       (current_tsc - entry->last_seen_tsc) > table->aging_timeout_tsc;
-        
+        bool expired =
+            entry->occupied && (current_tsc - entry->last_seen_tsc) > table->aging_timeout_tsc;
+
         /* Empty slot or expired entry or matching MAC */
         if (!entry->occupied || expired || mac_equal(entry->mac, mac)) {
             memcpy(entry->mac, mac, MAC_ADDR_LEN);
@@ -54,8 +51,8 @@ bool mac_table_insert(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN],
     return false;
 }
 
-bool mac_table_lookup(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN],
-                      uint64_t current_tsc, uint16_t *out_port) {
+bool mac_table_lookup(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN], uint64_t current_tsc,
+                      uint16_t *out_port) {
     uint32_t hash = mac_hash(mac);
     uint32_t index = hash & (MAC_TABLE_CAPACITY - 1);
 
@@ -71,7 +68,6 @@ bool mac_table_lookup(mac_table_t *table, const uint8_t mac[MAC_ADDR_LEN],
         if (mac_equal(entry->mac, mac)) {
             /* Found matching MAC, but is it expired? */
             if ((current_tsc - entry->last_seen_tsc) > table->aging_timeout_tsc) {
-                entry->occupied = false;
                 return false;
             }
             *out_port = entry->port_id;
