@@ -115,3 +115,17 @@ target_link_libraries(upe-router PRIVATE
 target_link_options(upe-router PRIVATE
   ${DPDK_LDFLAGS_OTHER}
 )
+
+# Router testing
+add_executable(bench-mac-table
+  router/bench/bench_mac_table.c
+  router/src/mac_table.c
+)
+
+target_include_directories(bench-mac-table PRIVATE
+  include
+  router/include
+  ${DPDK_INCLUDE_DIRS}
+)
+
+set_target_properties(bench-mac-table PROPERTIES C_EXTENSIONS ON)
