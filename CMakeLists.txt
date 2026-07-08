@@ -117,15 +117,40 @@ target_link_options(upe-router PRIVATE
 )
 
 # Router testing
-add_executable(bench-mac-table
+add_executable(bench_mac_table
   router/bench/bench_mac_table.c
   router/src/mac_table.c
 )
 
-target_include_directories(bench-mac-table PRIVATE
+target_include_directories(bench_mac_table PRIVATE
   include
   router/include
   ${DPDK_INCLUDE_DIRS}
 )
 
-set_target_properties(bench-mac-table PROPERTIES C_EXTENSIONS ON)
+set_target_properties(bench_mac_table PROPERTIES C_EXTENSIONS ON)
+
+add_test(NAME Router_Bench_Mac_Table COMMAND bench_mac_table)
+set_tests_properties(Router_Bench_Mac_Table PROPERTIES LABELS "Benchmark")
+
+add_executable(test_forwarding
+  router/bench/test_forwarding.c
+  router/src/mac_table.c
+  src/latency.c
+  src/log.c
+)
+
+target_include_directories(test_forwarding PRIVATE
+  include
+  router/include
+  router/bench
+  ${DPDK_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_forwarding PRIVATE
+  pthread
+  m
+)
+
+add_test(NAME Router_Forwarding_Tests COMMAND test_forwarding)
+set_tests_properties(Router_Forwarding_Tests PROPERTIES LABELS "Unit")
