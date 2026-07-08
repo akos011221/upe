@@ -195,6 +195,147 @@ static void test_ignore_non_unicast_sources(void) {
     ASSERT(!mac_is_unicast(bc_mac), "P5: Broadcast MAC must not be classified as unicast");
 }
 
+/* -----------------------------------------------------------------------
+ * Property 6: Table Saturation Behavior and Max Probe Limit
+ *
+ * Fill the table by inserting MACs that hash to consecutive slots (0, 1, 2, ...).
+ * Continue until the probe limit is reached, then verify that further insertions
+ * into the next slot fail.
+ * -----------------------------------------------------------------------
+ */
+static void test_table_saturation_and_probe_limit(void) {
+    mac_table_t table;
+    mac_table_init(&table, FAKE_AGING_TIMEOUT_SEC, FAKE_CYCLES_PER_NS);
+
+    uint8_t macs[MAC_TABLE_MAX_PROBE + 1][MAC_ADDR_LEN];
+    uint64_t tsc = 1000;
+
+    /* Generate MACs that will map to consective slots: 0, 1, 2...
+     * Base seed is incremented and the final byte is adjusted until
+     * it lands exactly on the target sequential index. */
+    for (uint32_t i = 0; i < (MAC_TABLE_MAX_PROBE + 1); i++) {
+        uint8_t temp_mac[MAC_ADDR_LEN] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+        uint32_t suffix = 0;
+
+        /* Force the last MAC to map to slot 0 instead of MAC_TABLE_MAX_PROBE + 1.
+         * This is required, otherwise it will map to MAC_TABLE_MAX_PROBE + 1
+         * and there will be no collision... */
+        uint32_t target_index = (i == MAC_TABLE_MAX_PROBE) ? 0 : i;
+
+        while (1) {
+            /* Encode i into bytes 1-2 to make each MAC unique */
+            temp_mac[1] = (uint8_t)(i >> 8);
+            temp_mac[2] = (uint8_t)(i & 0xFF);
+            /* Mutate bytes 4-5 to hunt for the target index */
+            temp_mac[4] = (uint8_t)(suffix & 0xFF);
+            temp_mac[5] = (uint8_t)((suffix >> 8) & 0xFF);
+
+            // FNV-1a calculating from mac_table.c
+            uint32_t hash = 2166136261u;
+            for (int b = 0; b < MAC_ADDR_LEN; b++) {
+                hash ^= temp_mac[b];
+                hash *= 16777619u;
+            }
+            uint32_t index = hash & (MAC_TABLE_CAPACITY - 1);
+
+            /* This MAC should land exactly at slot i */
+            if (index == target_index) {
+                memcpy(macs[i], temp_mac, MAC_ADDR_LEN);
+                break;
+            }
+            suffix++;
+        }
+    }
+
+    /* Fill the table up to the max allowed probe depth */
+    for (int i = 0; i < MAC_TABLE_MAX_PROBE; i++) {
+        bool ok = mac_table_insert(&table, macs[i], (uint16_t)(i % NUM_PORTS), tsc);
+        ASSERT(ok, "P6: Insert within table bounds should succeed");
+    }
+
+    /* The next MAC is hashed to slot 0, but slots 0 -> slot 15 are occupied.
+     * This will exhaust the probe distance and must fail. */
+    uint32_t initial_full_count = table.table_full_count;
+    bool overflow_ok = mac_table_insert(&table, macs[MAC_TABLE_MAX_PROBE], 1, tsc);
+
+    ASSERT(!overflow_ok, "P6: Insertion beyond MAX_PROBE bounds must fail");
+    ASSERT(table.table_full_count == initial_full_count + 1, "P6: table_full_count must increase");
+
+    /* Original entries must not be modified, deleted by the failed insert */
+    for (int i = 0; i < MAC_TABLE_MAX_PROBE; i++) {
+        uint16_t out_port = 0xFF;
+        bool found = mac_table_lookup(&table, macs[i], tsc, &out_port);
+        ASSERT(found, "P6: Original entries must remain after overflow error");
+        ASSERT(out_port == (uint16_t)(i % NUM_PORTS),
+               "P6: Original entry port mapping must remain");
+    }
+}
+
+/* -----------------------------------------------------------------------
+ * Property 7: Transparent Overwrite Stability
+ *
+ * When a MAC address ages out, the slot it was using should be instantly
+ * reusable by a new MAC that hashes to that same spot. The table shouldn't
+ * waste space by skipping expired entries and using fresh slots further down.
+ * -----------------------------------------------------------------------
+ */
+static void test_transparent_overwrite_stability(void) {
+    mac_table_t table;
+    mac_table_init(&table, FAKE_AGING_TIMEOUT_SEC, FAKE_CYCLES_PER_NS);
+
+    uint8_t mac_old[MAC_ADDR_LEN];
+    uint8_t mac_new[MAC_ADDR_LEN];
+
+    /* Find two different MACs that both land in Slot 5 */
+    uint32_t target_slot = 5;
+    uint32_t suffix = 0;
+    int found = 0;
+
+    while (found < 2) {
+        uint8_t temp_mac[MAC_ADDR_LEN] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+        temp_mac[1] = (uint8_t)(found + suffix >> 8);
+        temp_mac[5] = (uint8_t)(suffix & 0xFF);
+
+        uint32_t hash = 2166136261u;
+        for (int b = 0; b < MAC_ADDR_LEN; b++) {
+            hash ^= temp_mac[b];
+            hash *= 16777619u;
+        }
+        uint32_t index = hash & (MAC_TABLE_CAPACITY - 1);
+
+        if (index == target_slot) {
+            if (found == 0)
+                memcpy(mac_old, temp_mac, MAC_ADDR_LEN);
+            else
+                memcpy(mac_new, temp_mac, MAC_ADDR_LEN);
+            found++;
+        }
+        suffix++;
+    }
+
+    uint64_t tsc = 1000;
+
+    /* Put the first MAC into Slot 5 */
+    bool ok1 = mac_table_insert(&table, mac_old, 0, tsc);
+    ASSERT(ok1, "P7: Initial insertion should succeed");
+
+    /* Advance tsc to age out the MAC */
+    uint64_t tsc_expired = tsc + FAKE_AGING_TIMEOUT_TSC + 100;
+
+    /* Insert the new MAC (that also hashes to Slot 5) */
+    bool ok2 = mac_table_insert(&table, mac_new, 1, tsc_expired);
+    ASSERT(ok2, "P7: Overwriting an expired entry slot should succeed");
+
+    /* Verification */
+    uint16_t out_port = 0xFF;
+    bool found_old = mac_table_lookup(&table, mac_old, tsc_expired, &out_port);
+    ASSERT(!found_old, "P7: Expired MAC must no longer be seen");
+
+    bool found_new = mac_table_lookup(&table, mac_new, tsc_expired, &out_port);
+    ASSERT(found_new, "p7: New MAC should be seen");
+    ASSERT(out_port == 1, "P7: New MAC must map to the updated port (1)");
+}
+
 int main(void) {
     printf("Running MAC Table Property-Based Correctness Tests...\n");
     printf("--------------------------------------------------\n");
@@ -204,6 +345,8 @@ int main(void) {
     test_aging_timeout();
     test_entry_refresh();
     test_ignore_non_unicast_sources();
+    test_table_saturation_and_probe_limit();
+    test_transparent_overwrite_stability();
 
     printf("\nTest Execution Summary:\n");
     printf("  Total Assertions Run: %d\n", g_tests_run);
