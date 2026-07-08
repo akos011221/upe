@@ -346,10 +346,7 @@ int main(void) {
     test_entry_refresh();
     test_ignore_non_unicast_sources();
     test_table_saturation_and_probe_limit();
-<<<<<<< HEAD
     test_transparent_overwrite_stability();
-=======
->>>>>>> 3e793a3ec9961a51ad21fc992f57578cfd4d34aa
 
     printf("\nTest Execution Summary:\n");
     printf("  Total Assertions Run: %d\n", g_tests_run);
