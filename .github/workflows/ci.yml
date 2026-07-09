@@ -17,7 +17,26 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libpthread-stubs0-dev
+          sudo apt-get install -y build-essential cmake libpthread-stubs0-dev pkg-config
+
+      - name: Mock libdpdk workaround for CI
+        run: |
+          mkdir -p ./mock_pkgconfig
+
+          cat << 'EOF > ./mock_pkgconfig/libdpdk.pc'
+          prefix=/usr
+          exec_prefix=${prefix}
+          libdir=${exec_prefix}/lib
+          includedir=${prefix}/include
+
+          Name: libdpdk
+          Description: Dummy DPDK so CI doesn't fail
+          Version: 23.11.0
+          Libs: -L${libdir}
+          Cflags: -I${includedir}
+          EOF
+
+          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/mock_pkgconfig:$PKG_CONFIG_PATH"  >> $GITHUB_ENV
 
       - name: Configure CMake
         run: |
