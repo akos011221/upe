@@ -46,7 +46,9 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          # Macro guards with CFLAGS to bypass header lookups so it won't try to locate these
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-D_RTE_EAL_H_ -D_RTE_ETHDEV_H_ -D_RTE_ETHER_H_ -D_RTE_MBUF_H_"
 
       - name: Compile Executables
         run: |
