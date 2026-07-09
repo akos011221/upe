@@ -1,15 +1,12 @@
 name: UPE CI
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -23,7 +20,7 @@ jobs:
         run: |
           mkdir -p ./mock_pkgconfig
 
-          # Placeholder files, so #include <rte_eal.h> and others resolve.
+          # Create empty placeholder files so #include <rte_*.h> matches pass
           touch router/bench/rte_eal.h
           touch router/bench/rte_ethdev.h
           touch router/bench/rte_ether.h
@@ -33,7 +30,7 @@ jobs:
           prefix=/usr
           exec_prefix=${prefix}
           libdir=${exec_prefix}/lib
-          includedir=${prefix}/include
+          includedir=${{ github.workspace }}/router/bench
 
           Name: libdpdk
           Description: Dummy DPDK so CI doesn't fail
@@ -46,9 +43,7 @@ jobs:
 
       - name: Configure CMake
         run: |
-          # Macro guards with CFLAGS to bypass header lookups so it won't try to locate these
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS="-D_RTE_EAL_H_ -D_RTE_ETHDEV_H_ -D_RTE_ETHER_H_ -D_RTE_MBUF_H_"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Compile Executables
         run: |
@@ -60,4 +55,4 @@ jobs:
 
       - name: Run Benchmarks
         run: |
-          ctest --test-dir build -L Bench --output-on-failure
+          ctest --test-dir build -L Benchmark --output-on-failure
