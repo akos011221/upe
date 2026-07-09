@@ -44,7 +44,7 @@ jobs:
 
       - name: Compile Executables
         run: |
-          cmake --build build --config Release
+          cmake --build build --config Release --target test_forwarding --target bench_mac_table
 
       - name: Run Unit Tests
         run: |
