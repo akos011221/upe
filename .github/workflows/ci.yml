@@ -1,0 +1,58 @@
+name: UPE CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libpthread-stubs0-dev pkg-config
+
+      - name: Mock libdpdk workaround for CI
+        run: |
+          mkdir -p ./mock_pkgconfig
+
+          # Create empty placeholder files so #include <rte_*.h> matches pass
+          touch router/bench/rte_eal.h
+          touch router/bench/rte_ethdev.h
+          touch router/bench/rte_ether.h
+          touch router/bench/rte_mbuf.h
+
+          cat << 'EOF' > ./mock_pkgconfig/libdpdk.pc
+          prefix=/usr
+          exec_prefix=${prefix}
+          libdir=${exec_prefix}/lib
+          includedir=${{ github.workspace }}/router/bench
+
+          Name: libdpdk
+          Description: Dummy DPDK so CI doesn't fail
+          Version: 23.11.0
+          Libs: -L${libdir}
+          Cflags: -I${includedir}
+          EOF
+
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/mock_pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile Executables
+        run: |
+          cmake --build build --config Release --target test_forwarding --target bench_mac_table
+
+      - name: Run Unit Tests
+        run: |
+          ctest --test-dir build -L Unit --output-on-failure
+
+      - name: Run Benchmarks
+        run: |
+          ctest --test-dir build -L Benchmark --output-on-failure
