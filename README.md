@@ -6,11 +6,11 @@ The repository contains two different packet processing engines.
 
 Runs on any Linux system without special hardware. Uses kernel sockets for I/O.
 
-- **RX:** libpcap (`pcap_dispatch`) reading from interface or PCAP file
-- **TX:** Raw AF_PACKET socket with `sendmmsg` batching
+- **RX:** libpcap reading from interface or PCAP file
+- **TX:** Raw AF_PACKET socket with batching
 - **Pipeline:** One RX thread distributes packets to N worker threads via lock-free SPSC rings
 - **Workers:** Process packets (L3 forwarding, filtering, etc.) and send via TX socket
-- **Memory:** Custom packet pool (`pktbuf`) backed by 2MB huge pages
+- **Memory:** Custom packet pool with 2MB huge pages
 - **Stats:** Separate thread dumps rule counters, latency histograms, and neighbor tables
 
 **Docs:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
