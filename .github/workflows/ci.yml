@@ -23,6 +23,12 @@ jobs:
         run: |
           mkdir -p ./mock_pkgconfig
 
+          # Placeholder files, so #include <rte_eal.h> and others resolve.
+          touch router/bench/rte_eal.h
+          touch router/bench/rte_ethdev.h
+          touch router/bench/rte_ether.h
+          touch router/bench/rte_mbuf.h
+
           cat << 'EOF' > ./mock_pkgconfig/libdpdk.pc
           prefix=/usr
           exec_prefix=${prefix}
