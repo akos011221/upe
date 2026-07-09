@@ -79,14 +79,14 @@ static void forward_mbuf(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t in
             if (p != ingress_port) egress_ports[n_egress++] = p;
         }
 
-        /* Allocate copies for the egress port. */
+        /* Allocate colones for the egress port. */
         bool alloc_ok = true;
-        copies[0] = mbuf; /* First egress gets the original. */
+        copies[0] = mbuf; /* First egress gets the original pointer. */
 
         for (uint16_t i = 1; i < n_egress; i++) {
-            copies[i] = rte_pktmbuf_copy(mbuf, mbuf->pool, 0, UINT32_MAX);
+            copies[i] = rte_pktmbuf_clone(mbuf, mbuf->pool);
             if (copies[i] == NULL) {
-                log_msg(LOG_WARN, "Pool exhausted during flood copy");
+                log_msg(LOG_WARN, "Pool exhausted during flood clone");
                 ctx->pool_exhaustion_count++;
                 log_msg(LOG_WARN, "Pool exhaustion count: %lu", ctx->pool_exhaustion_count);
 
