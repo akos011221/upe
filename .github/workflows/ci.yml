@@ -23,7 +23,7 @@ jobs:
         run: |
           mkdir -p ./mock_pkgconfig
 
-          cat << 'EOF > ./mock_pkgconfig/libdpdk.pc'
+          cat << 'EOF' > ./mock_pkgconfig/libdpdk.pc
           prefix=/usr
           exec_prefix=${prefix}
           libdir=${exec_prefix}/lib
@@ -36,7 +36,7 @@ jobs:
           Cflags: -I${includedir}
           EOF
 
-          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/mock_pkgconfig:$PKG_CONFIG_PATH"  >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/mock_pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Configure CMake
         run: |
