@@ -43,6 +43,7 @@ struct rte_mbuf {
     uint32_t pkt_len;
     uint16_t data_len;
     uint16_t port;
+    uint16_t refcnt;
     void *buf_addr;
     void *pool;
     char data_buf[MOCK_MBUF_SIZE];
@@ -63,6 +64,7 @@ static inline struct rte_mbuf *rte_pktmbuf_alloc(void *pool) {
         memset(m, 0, sizeof(struct rte_mbuf));
         m->buf_addr = m->data_buf + RTE_PKTMBUF_HEADROOM;
         m->pool = pool;
+        m->refcnt = 1;
         mock_mbuf_allocated++;
     }
     return m;
@@ -70,11 +72,36 @@ static inline struct rte_mbuf *rte_pktmbuf_alloc(void *pool) {
 
 static inline void rte_pktmbuf_free(struct rte_mbuf *m) {
     if (m) {
-        mock_mbuf_freed++;
-        free(m);
+        m->refcnt--;
+        if (m->refcnt == 0) {
+            mock_mbuf_freed++;
+            free(m);
+        }
     }
 }
 
+/* Copies metadata only and shares the parent's payload (by copying just the pointer addr) */
+static inline struct rte_mbuf *rte_pktmbuf_clone(struct rte_mbuf *md, void *mp) {
+    (void)mp;
+    if(!md) return NULL;
+
+    /* Create a new metadata shell, point buf_addr to the parent's data buffer */
+    struct rte_mbuf *clone = (struct rte_mbuf *)malloc(sizeof(struct rte_mbuf));
+    if (clone) {
+        clone->pkt_len = md->pkt_len;
+        clone->data_len = md->data_len;
+        clone->port = md->port;
+        clone->pool = md->pool;
+        clone->buf_addr = md->buf_addr;
+        clone->refcnt = 1;
+
+        md->refcnt++; /* Parent's ref count must be increased */
+        mock_mbuf_allocated++;
+    }
+    return clone;
+}
+
+/* Deep copies the whole packet, allocating new memory for the payload as well */
 static inline struct rte_mbuf *rte_pktmbuf_copy(const struct rte_mbuf *m, void *pool, uint32_t offset, uint32_t length) {
     (void)offset;
     (void)length;
