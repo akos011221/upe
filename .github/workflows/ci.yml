@@ -40,16 +40,16 @@ jobs:
 
       - name: Configure CMake
         run: |
-          mkdir build
-          cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile Executables
+        run: |
+          cmake --build build --config Release
 
       - name: Run Unit Tests
         run: |
-          cd build
-          ctest -L Unit --output-on-failure
+          ctest --test-dir build -L Unit --output-on-failure
 
       - name: Run Benchmarks
         run: |
-          cd build
-          ctest -L Bench --output-on-failure
+          ctest --test-dir build -L Bench --output-on-failure
