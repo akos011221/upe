@@ -29,6 +29,14 @@ typedef struct {
     uint32_t link_wait_sec;
 } router_config_t;
 
+/* Router Interface configuration per port */
+typedef struct {
+    uint32_t ip;        /* Network byte order */
+    uint32_t netmask;   /* Network byte order */
+    uint8_t mac[6];     /* Source MAC for egress on this port */
+    bool configured;
+} router_iface_t;
+
 /* Per-port TX burst buffer */
 typedef struct {
     struct rte_mbuf *mbufs[BURST_SIZE];
@@ -38,13 +46,24 @@ typedef struct {
 /* RX lcore context (worker thread data) */
 typedef struct {
     mac_table_t mac_table;
-    latency_histogram_t latency_hist[NUM_PORTS];
+    lpm_table_t lpm;
+    arp4_table_t arp4;
+    router_iface_t ifaces[NUM_PORTS];
+
     tx_buffer_t tx_buffers[NUM_PORTS];
+    latency_histogram_t latency_hist[NUM_PORTS];
+
     uint64_t packets_forwarded;
     uint64_t bytes_forwarded;
     uint64_t packets_flooded;
     uint64_t packets_dropped;
     uint64_t pool_exhaustion_count;
+    uint64_t packets_routed;
+    uint64_t packets_ttl_exceeded;
+    uint64_t packets_no_route;
+    uint64_t packets_arp_miss;
+    uint64_t packets_local;
+
     double cycles_per_ns;
     volatile bool stop;
 } rx_lcore_ctx_t;
