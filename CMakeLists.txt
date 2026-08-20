@@ -86,6 +86,8 @@ pkg_check_modules(DPDK REQUIRED libdpdk)
 add_executable(upe-router
   router/src/main.c
   router/src/mac_table.c
+  router/src/lpm.c
+  router/src/arp4.c
   router/src/rx_lcore.c
   src/latency.c
   src/log.c
@@ -102,6 +104,7 @@ target_compile_options(upe-router PRIVATE
   -Wall
   -Wextra
   -Wno-pedantic
+  -D_DEFAULT_SOURCE
 )
 
 target_link_libraries(upe-router PRIVATE
@@ -136,6 +139,8 @@ set_tests_properties(Router_Bench_Mac_Table PROPERTIES LABELS "Benchmark")
 add_executable(test_forwarding
   router/bench/test_forwarding.c
   router/src/mac_table.c
+  router/src/lpm.c
+  router/src/arp4.c
   src/latency.c
   src/log.c
 )

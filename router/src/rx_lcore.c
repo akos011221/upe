@@ -57,7 +57,7 @@ static void send_arp_request(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
     eth->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
 
     /* ARP hdr */
-    arp->arp_hardware = rte_cpu_to_be_16(RTE_ARP_HDR_ETHER);
+    arp->arp_hardware = rte_cpu_to_be_16(RTE_ARP_HRD_ETHER);
     arp->arp_protocol = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
     arp->arp_hlen = 6;
     arp->arp_plen = 4;
@@ -65,7 +65,7 @@ static void send_arp_request(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
 
     rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac, &arp->arp_data.arp_sha);
     arp->arp_data.arp_sip = ctx->ifaces[egress_port].ip;
-    memset(&arp->arp_data.arp_tha; 0, 6);
+    memset(&arp->arp_data.arp_tha, 0, 6);
     arp->arp_data.arp_tip = target_ip;
 
     enqueue_tx(egress_port, &ctx->tx_buffers[egress_port], mbuf);

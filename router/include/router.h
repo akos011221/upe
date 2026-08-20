@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <rte_mbuf.h>
 #include "mac_table.h"
+#include "lpm.h"
+#include "arp4.h"
 #include "latency.h"
 
 #define NUM_PORTS 2
