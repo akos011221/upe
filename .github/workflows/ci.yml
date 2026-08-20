@@ -25,6 +25,9 @@ jobs:
           touch router/bench/rte_ethdev.h
           touch router/bench/rte_ether.h
           touch router/bench/rte_mbuf.h
+          touch router/bench/rte_ip.h
+          touch router/bench/rte_arp.h
+          touch router/bench/rte_byteorder.h
 
           cat << 'EOF' > ./mock_pkgconfig/libdpdk.pc
           prefix=/usr
