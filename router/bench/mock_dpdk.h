@@ -15,6 +15,11 @@
 #define _RTE_ETHDEV_H_
 #define _RTE_ETHER_H_
 #define _RTE_MBUF_H_
+#define _RTE_IP_H_
+#define _RTE_ARP_H_
+#define _RTE_BYTEORDER_H_
+#define _RTE_BYTEORDER_X86_H_
+#define _RTE_BYTEORDER_ARM_H_
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -160,5 +165,55 @@ static inline uint16_t rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id, str
     (void)nb_pkts;
     return 0;
 }
+
+/* L3 DPDK MOCKS */
+#define rte_pktmbuf_mtod_offset(m, t, o) ((t)((char *)(m)->buf_addr + (o)))
+#define rte_be_to_cpu_16(x) (x)
+#define rte_be_to_cpu_32(x) (x)
+#define rte_cpu_to_be_16(x) (x)
+#define rte_cpu_to_be_32(x) (x)
+
+#define RTE_ETHER_TYPE_IPV4 0x0800
+#define RTE_ETHER_TYPE_ARP  0x0806
+#define RTE_ARP_HRD_ETHER 1
+#define RTE_ARP_OP_REQUEST 1
+#define RTE_ARP_OP_REPLY   2
+
+static inline void rte_ether_addr_copy(const struct rte_ether_addr *ea_from, struct rte_ether_addr *ea_to) {
+    *ea_to = *ea_from;
+}
+
+struct rte_ipv4_hdr {
+    uint8_t  version_ihl;
+    uint8_t  type_of_service;
+    uint16_t total_length;
+    uint16_t packet_id;
+    uint16_t fragment_offset;
+    uint8_t  time_to_live;
+    uint8_t  next_proto_id;
+    uint16_t hdr_checksum;
+    uint32_t src_addr;
+    uint32_t dst_addr;
+} __attribute__((__packed__));
+
+static inline uint16_t rte_ipv4_cksum(const struct rte_ipv4_hdr *ipv4_hdr) {
+    (void)ipv4_hdr; return 0;
+}
+
+struct rte_arp_ipv4 {
+    struct rte_ether_addr arp_sha;
+    uint32_t              arp_sip;
+    struct rte_ether_addr arp_tha;
+    uint32_t              arp_tip;
+} __attribute__((__packed__));
+
+struct rte_arp_hdr {
+    uint16_t arp_hardware;
+    uint16_t arp_protocol;
+    uint8_t  arp_hlen;
+    uint8_t  arp_plen;
+    uint16_t arp_opcode;
+    struct rte_arp_ipv4 arp_data;
+} __attribute__((__packed__));
 
 #endif // MOCK_DPDK_H
