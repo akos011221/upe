@@ -4,6 +4,7 @@
 #include <rte_mbuf.h>
 #include <rte_ip.h>
 #include <rte_arp.h>
+#include <rte_icmp.h>
 #include <rte_byteorder.h>
 #include <string.h>
 
@@ -123,7 +124,44 @@ static bool handle_arp(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingr
     return false;
 }
 
-/* Handle IPv4 packets. */
+/* Handle ICMP Echo Requests to the router. */
+static bool handle_icmp_echo(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port, uint64_t ingress_tsc) {
+    struct rte_ether_hdr *eth = eth_hdr(mbuf);
+    struct rte_ipv4_hdr *ipv4 = rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+
+    uint16_t ihl_bytes = (ipv4->version_ihl & 0x0f) * 4;
+    struct rte_icmp_hdr *icmp = (struct rte_icmp_hdr *)((uint8_t *)ipv4 + ihl_bytes);
+
+    if (icmp->icmp_type == RTE_IP_ICMP_ECHO_REQUEST) {
+        /* Swap MACs */
+        rte_ether_addr_copy(&eth->src_addr, &eth->dst_addr);
+        rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac, &eth->src_addr);
+
+        /* Swap IPs */
+        uint32_t tmp_ip = ipv4->src_addr;
+        ipv4->src_addr = ipv4->dst_addr;
+        ipv4->dst_addr = tmp_ip;
+
+        /* Update to ICMP Reply */
+        icmp->icmp_type = RTE_IP_ICMP_ECHO_REPLY;
+
+        /* Incrementally update ICMP checksum (Type changed from 8 to 0) */
+        uint32_t cksum = ~icmp->icmp_cksum & 0xFFFF;
+        cksum += rte_cpu_to_be_16(0x0800);
+        cksum = (cksum & 0xFFFF) + (cksum >> 16);
+        icmp->icmp_cksum = ~cksum & 0xFFFF;
+
+        uint64_t egress_tsc = rdtsc();
+        latency_record(&ctx->latency_hist[ingress_port], egress_tsc - ingress_tsc, ctx->cycles_per_ns);
+        enqueue_tx(ingress_port, &ctx->tx_buffers[ingress_port], mbuf);
+
+        return true;
+    }
+
+    return false;
+}
+
+/* Handle IPv4 packets */
 static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port, uint64_t ingress_tsc) {
     if (!ctx->ifaces[ingress_port].configured) return false;
 
@@ -136,7 +174,15 @@ static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ing
     for (uint16_t i = 0; i < NUM_PORTS; i++) {
         if (ctx->ifaces[i].configured && ctx->ifaces[i].ip == dst_ip) {
             ctx->packets_local++;
-            rte_pktmbuf_free(mbuf); /* No local stack yet, so drop this. */
+           
+            /* Responding to ICMP */
+            if (ipv4->next_proto_id == IPPROTO_ICMP) {
+                if (handle_icmp_echo(ctx, mbuf, ingress_port, ingress_tsc)) {
+                    return true;
+                }
+            }
+
+            rte_pktmbuf_free(mbuf); /* Drop other traffic for local stack */
             return true;
         }
     }

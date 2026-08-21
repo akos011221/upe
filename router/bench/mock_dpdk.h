@@ -17,6 +17,7 @@
 #define _RTE_MBUF_H_
 #define _RTE_IP_H_
 #define _RTE_ARP_H_
+#define _RTE_ICMP_H_ 
 #define _RTE_BYTEORDER_H_
 #define _RTE_BYTEORDER_X86_H_
 #define _RTE_BYTEORDER_ARM_H_
@@ -168,12 +169,17 @@ static inline uint16_t rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id, str
 
 /* L3 DPDK MOCKS */
 #define rte_pktmbuf_mtod_offset(m, t, o) ((t)((char *)(m)->buf_addr + (o)))
-#define rte_be_to_cpu_16(x) (x)
-#define rte_be_to_cpu_32(x) (x)
-#define rte_cpu_to_be_16(x) (x)
-#define rte_cpu_to_be_32(x) (x)
+#define rte_be_to_cpu_16(x) __builtin_bswap16(x)
+#define rte_be_to_cpu_32(x) __builtin_bswap32(x)
+#define rte_cpu_to_be_16(x) __builtin_bswap16(x)
+#define rte_cpu_to_be_32(x) __builtin_bswap32(x)
 
 #define RTE_ETHER_TYPE_IPV4 0x0800
+#define RTE_IPV4(a, b, c, d) ((uint32_t)(((a) & 0xff) << 24) | \
+                              (((b) & 0xff) << 16) | \
+                              (((c) & 0xff) << 8)  | \
+                              ((d) & 0xff))
+#define IPPROTO_ICMP 1
 #define RTE_ETHER_TYPE_ARP  0x0806
 #define RTE_ARP_HRD_ETHER 1
 #define RTE_ARP_OP_REQUEST 1
@@ -215,5 +221,20 @@ struct rte_arp_hdr {
     uint16_t arp_opcode;
     struct rte_arp_ipv4 arp_data;
 } __attribute__((__packed__));
+
+#define RTE_IP_ICMP_ECHO_REPLY   0
+#define RTE_IP_ICMP_ECHO_REQUEST 8
+
+struct rte_icmp_hdr {
+    uint8_t  icmp_type;
+    uint8_t  icmp_code;
+    uint16_t icmp_cksum;
+    uint16_t icmp_ident;
+    uint16_t icmp_seq_nb;
+} __attribute__((__packed__));
+
+static inline uint16_t rte_raw_cksum(const void *buf, size_t len) {
+    (void)buf; (void)len; return 0;
+}
 
 #endif // MOCK_DPDK_H
