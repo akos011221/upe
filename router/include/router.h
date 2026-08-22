@@ -9,7 +9,7 @@
 #include "arp4.h"
 #include "latency.h"
 
-#define NUM_PORTS 2
+#define MAX_PORTS 64
 
 #define BURST_SIZE 32 /* RX/TX burst size */
 
@@ -50,10 +50,12 @@ typedef struct {
     mac_table_t mac_table;
     lpm_table_t lpm;
     arp4_table_t arp4;
-    router_iface_t ifaces[NUM_PORTS];
+    router_iface_t ifaces[MAX_PORTS];
 
-    tx_buffer_t tx_buffers[NUM_PORTS];
-    latency_histogram_t latency_hist[NUM_PORTS];
+    tx_buffer_t tx_buffers[MAX_PORTS];
+    latency_histogram_t latency_hist[MAX_PORTS];
+
+    uint64_t active_ports_mask;
 
     uint64_t packets_forwarded;
     uint64_t bytes_forwarded;
@@ -74,7 +76,7 @@ typedef struct {
 typedef struct {
     router_config_t config;
     struct rte_mempool *mbuf_pool;
-    uint16_t port_ids[NUM_PORTS];
+    uint16_t port_ids[MAX_PORTS];
     rx_lcore_ctx_t rx_ctx;
     uint64_t start_tsc;
     uint64_t end_tsc;
@@ -82,5 +84,8 @@ typedef struct {
 
 int rx_lcore_main(void *arg);
 void signal_handler(int signum);
+
+int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
+              uint32_t link_wait_sec);
 
 #endif /* ROUTER_H */

@@ -171,7 +171,7 @@ static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ing
     uint32_t dst_ip = ipv4->dst_addr;
 
     /* Local Delivery Check */
-    for (uint16_t i = 0; i < NUM_PORTS; i++) {
+    for (uint16_t i = 0; i < MAX_PORTS; i++) {
         if (ctx->ifaces[i].configured && ctx->ifaces[i].ip == dst_ip) {
             ctx->packets_local++;
            
@@ -305,12 +305,18 @@ static void forward_mbuf(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t in
             ctx->bytes_forwarded += mbuf->pkt_len;
         }
     } else { /* Flood to all ports except ingress. */
-        struct rte_mbuf *copies[NUM_PORTS];
-        uint16_t egress_ports[NUM_PORTS];
+        struct rte_mbuf *copies[MAX_PORTS];
+        uint16_t egress_ports[MAX_PORTS];
         uint16_t n_egress = 0;
 
-        for (uint16_t p = 0; p < NUM_PORTS; p++) {
-            if (p != ingress_port) egress_ports[n_egress++] = p;
+        uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
+                                                __ATOMIC_ACQUIRE);
+
+        for (uint16_t p = 0; p < MAX_PORTS; p++) {
+            /* Port's bit should be 1 and not ingress port. */
+            if ((active_ports & (1ULL << p)) && (p != ingress_port)) {
+                egress_ports[n_egress++] = p;
+            }
         }
 
         /* Allocate clones for the egress port. */
@@ -353,28 +359,40 @@ int rx_lcore_main(void *arg) {
     struct rte_mbuf *rx_mbufs[BURST_SIZE];
 
     while (!ctx->stop) {
-        for (uint16_t port = 0; port < NUM_PORTS; port++) {
-            uint16_t nb_rx = rte_eth_rx_burst(port, 0, rx_mbufs, BURST_SIZE);
+        uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
+                                                __ATOMIC_ACQUIRE);
+
+        for (uint16_t p = 0; p < MAX_PORTS; p++) {
+            if (!(active_ports & (1ULL << p))) continue;
+            
+            uint16_t nb_rx = rte_eth_rx_burst(p, 0, rx_mbufs, BURST_SIZE);
 
             if (nb_rx > 0) {
                 uint64_t ingress_tsc = rdtsc();
 
                 for (uint16_t i = 0; i < nb_rx; i++) {
-                    forward_mbuf(ctx, rx_mbufs[i], port, ingress_tsc);
+                    forward_mbuf(ctx, rx_mbufs[i], p, ingress_tsc);
                 }
             }
         }
 
-        /* Flush happens at every pass */
-        for (uint16_t p = 0; p < NUM_PORTS; p++) {
-            flush_tx_buffer(p, &ctx->tx_buffers[p]);
+        /* Flush happens at every pass. */
+        for (uint16_t p = 0; p < MAX_PORTS; p++) {
+            if (active_ports & (1ULL << p)) {
+                flush_tx_buffer(p, &ctx->tx_buffers[p]);
+            }
         }
     }
 
     log_msg(LOG_INFO, "RX lcore %u stopping, will flush TX buffers...", rte_lcore_id());
 
-    for (uint16_t p = 0; p < NUM_PORTS; p++) {
-        flush_tx_buffer(p, &ctx->tx_buffers[p]);
+    /* Final flush before shutdown. */
+    uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
+                                            __ATOMIC_ACQUIRE);
+    for (uint16_t p = 0; p < MAX_PORTS; p++) {
+        if (active_ports & (1ULL << p)) {
+            flush_tx_buffer(p, &ctx->tx_buffers[p]);
+        }
     }
 
     log_msg(LOG_INFO, "RX lcore %u stopped", rte_lcore_id());

@@ -71,7 +71,7 @@ static void test_insert_lookup_roundtrip(void) {
          * seed*2 gives: 0, 2, 4 ... 254, always unique unicast. **/
         make_unicast_mac(mac, (uint8_t)(seed * 2));
 
-        uint16_t insert_port = (uint16_t)(seed % NUM_PORTS);
+        uint16_t insert_port = (uint16_t)(seed % MAX_PORTS);
         uint64_t tsc = (uint64_t)(seed + 1) * 1000;
 
         bool ok = mac_table_insert(&table, mac, insert_port, tsc);
@@ -249,7 +249,7 @@ static void test_table_saturation_and_probe_limit(void) {
 
     /* Fill the table up to the max allowed probe depth */
     for (int i = 0; i < MAC_TABLE_MAX_PROBE; i++) {
-        bool ok = mac_table_insert(&table, macs[i], (uint16_t)(i % NUM_PORTS), tsc);
+        bool ok = mac_table_insert(&table, macs[i], (uint16_t)(i % MAX_PORTS), tsc);
         ASSERT(ok, "P6: Insert within table bounds should succeed");
     }
 
@@ -266,7 +266,7 @@ static void test_table_saturation_and_probe_limit(void) {
         uint16_t out_port = 0xFF;
         bool found = mac_table_lookup(&table, macs[i], tsc, &out_port);
         ASSERT(found, "P6: Original entries must remain after overflow error");
-        ASSERT(out_port == (uint16_t)(i % NUM_PORTS),
+        ASSERT(out_port == (uint16_t)(i % MAX_PORTS),
                "P6: Original entry port mapping must remain");
     }
 }
