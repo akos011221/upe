@@ -20,14 +20,7 @@ static struct rte_mempool *g_pool;
 static rx_lcore_ctx_t *g_ctx;
 static int server_fd = -1;
 
-/* attach_vhost_port: Create a new virtual network card. */
-static int attach_vhost_port(const char *port_name, const char *sock_path) {
-    char devargs[256];
-
-    /* 'client=1' is required so the router connects to the Pod/QEMU and not 
-     * the opposite way. */
-    snprintf(devargs, sizeof(devargs), "iface=%s,client=1", sock_path);
-
+static int attach_tap_port(const char *port_name, const char *devargs) {
     uint16_t port_id;
 
     int ret = rte_eal_hotplug_add("vdev", port_name, devargs);
@@ -41,10 +34,10 @@ static int attach_vhost_port(const char *port_name, const char *sock_path) {
 
     ret = port_init(port_id, g_pool, 0);
     if (ret < 0) {
-        RTE_LOG(ERR, CTRL, "Failed to initialize hotplugged port %d\n", port_id);
+        RTE_LOG(ERR, CTRL, "Failed to init hotplugged port %d\n", port_id);
         return ret;
     }
-    
+
     return port_id;
 }
 
@@ -62,20 +55,21 @@ static void handle_client(int client_fd) {
     /* Expectation is that the command formatted as: 
      * "ADD_VHOST examplepod 10.128.0.50 00:11:22:33:44:55" */
     char cmd[32], pod_id[64], ip_str[32], mac_str[32];
+    int parsed = sscanf(buf, "%31s %63s %31s %31s", cmd, pod_id, ip_str, mac_str);
 
-    if (sscanf(buf, "%31s %63s %31s %31s", cmd, pod_id, ip_str, mac_str) == 4) {
+    if (parsed >= 2) {
 
-        if (strcmp(cmd, "ADD_VHOST") == 0) {
+        if (strcmp(cmd, "ADD_TAP") == 0 && parsed == 4) {
 
             char port_name[64];
-            snprintf(port_name, sizeof(port_name), "net_vhost_%s", pod_id);
+            snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
 
-            char sock_path[128];
-            snprintf(sock_path, sizeof(sock_path), "/var/run/upe/vhost-%s.sock", pod_id);
+            char devargs[128];
+            snprintf(devargs, sizeof(devargs), "iface=tap_%s", pod_id);
 
-            RTE_LOG(INFO, CTRL, "IPC received: attaching %s at %s\n", port_name, sock_path);
+            RTE_LOG(INFO, CTRL, "IPC received: attaching %s with %s\n", port_name, devargs);
 
-            int port_id = attach_vhost_port(port_name, sock_path);
+            int port_id = attach_tap_port(port_name, devargs);
             if (port_id >= 0 && port_id < MAX_PORTS) {
                 /* Parse the IPv4 address. */
                 struct in_addr addr;
@@ -97,7 +91,7 @@ static void handle_client(int client_fd) {
                     memcpy(g_ctx->ifaces[port_id].mac, mac, 6);
                 }
 
-                g_ctx->ifaces[port_id].configured = true;
+                g_ctx->ifaces[port_id].configured = true
 
                 /* To avoid lock contention in the rx_lcore polling loop, notify it about the new port
                 * using atomic bitmask. */
@@ -106,7 +100,38 @@ static void handle_client(int client_fd) {
                 /* Response to the CNI. */
                 const char *resp = "OK\n";
                 write(client_fd, resp, strlen(resp));
+            } else {
+                const char *resp = "ERR\n";
+                write(client_fd, resp, strlen(resp));
+            }
 
+        } else if (strcmp(cmd, "DEL_TAP") == 0 && parsed == 2) {
+
+            char port_name[64];
+            snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
+
+            uint16_t port_id;
+            if (rte_eth_dev_get_port_by_name(port_name, &port_id) == 0) {
+
+                // Stop lx_lcore from polling this port right now.
+                __atomic_and_fetch(&g_ctx->active_ports_mask, ~(1ULL << port_id), __ATOMIC_RELEASE);
+
+                usleep(1000);
+
+                uint32_t ip = g_ctx->ifaces[port_id].ip;
+                lpm_delete(&g_ctx->lpm, ip, 32);
+
+                rte_eth_dev_stop(port_id);
+                rte_eth_dev_close(port_id);
+
+                rte_eal_hotplug_remove("vdev", port_name);
+
+                g_ctx->ifaces[port_id].configured = false;
+
+                RTE_LOG(INFO, CTRL, "IPC received: destroyed %s\n", port_name);
+
+                const char *resp = "OK\n";
+                write(client_fd, resp, strlen(resp));
             } else {
                 const char *resp = "ERR\n";
                 write(client_fd, resp, strlen(resp));

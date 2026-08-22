@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# The container runtime passes the below environment variables.
+NETNS=$CNI_NETNS
+CONTAINER_ID=$CNI_CONTAINERID
+IFNAME=$CNI_IFNAME
+COMMAND=$CNI_COMMAND
+
+NETNS_NAME=$(basename $NETNS)
+
+IPC_SOCKET="/var/run/upe/router.sock"
+POD_ID_SHORT=$(echo $CONTAINER_ID | cut -c 1-8)
+TAP_NAME="tap_${POD_ID_SHORT}"
+
+# Read the JSON config from the container runtime.
+CONFIG=$(cat)
+
+# Delegate IPAM to host-local binary.
+IPAM_RESULT=$(echo "$CONFIG" | /var/lib/rancher/k3s/data/cni/host-local)
+
+if [ $? -ne 0 ]; then
+    echo "IPAM failed: $IPAM_RESULT" >&2
+    exit 1
+fi
+
+if [ "$COMMAND" = "ADD" ]; then
+    # Extract the allocated IP address from the IPAM JSON response.
+    POD_IP_CIDR=$(echo "$IPAM_RESULT" | jq -r '.ips[0].address')
+    POD_IP=$(echo "$POD_IP_CIDR" | cut -d'/' -f1)
+
+    # Generate random MAC address.
+    POD_MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
+
+    echo "ADD_TAP ${POD_ID_SHORT} ${POD_IP} ${POD_MAC}" | nc -U $IPC_SOCKET > /dev/null
+
+    sleep 0.5
+
+    # Move the DPDK TAP interface into the container's network NS.
+    ip link set $TAP_NAME netns $NETNS
+
+    # Configure the interface inside the container.
+    ip -n $NETNS_NAME link set $TAP_NAME name $IFNAME
+    ip -n $NETNS_NAME addr add ${POD_IP}/32 dev $IFNAME
+    ip -n $NETNS_NAME link set $IFNAME address $POD_MAC
+    ip -n $NETNS_NAME link set $IFNAME up
+    ip -n $NETNS_NAME route add default dev $IFNAME
+
+    cat <<EOF # Output the standard CNI JSON Response back to the container runtime.
+{
+    "cniVersion": "0.3.1",
+    "interfaces": [
+        {
+            "name": "$IFNAME",
+            "mac": "$POD_MAC"
+        }
+    ],
+    "ips": [
+        {
+            "version": "4",
+            "address": "${POD_IP}/32",
+            "interface": 0
+        }
+    ]
+}
+EOF
+
+elif [ "$COMMAND" = "DEL" ]; then
+    echo "DEL_TAP ${POD_ID_SHORT}" | nc -U $IPC_SOCKET > /dev/null
+fi

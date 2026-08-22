@@ -78,3 +78,20 @@ bool lpm_lookup(const lpm_table_t *table, uint32_t dest_ip, uint32_t *out_next_h
 
     return false; /* No Route Found */
 }
+
+bool lpm_delete(lpm_table_t *table, uint32_t prefix, uint8_t prefix_len) {
+        if (!table || prefix_len > 32) return false;
+
+        uint32_t mask = compute_mask(prefix_len);
+        uint32_t masked_prefix = prefix &mask;
+
+        for (uint32_t i = 0; i < table->count; i++) {
+            if (table->entries[i].valid && table->entries[i].prefix == masked_prefix &&
+                table->entries[i].prefix_len == prefix_len) {
+                
+                table->entries[i].valid = false;
+                return true;
+            }
+        }
+        return false;
+    }
