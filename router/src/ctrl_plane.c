@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -76,7 +77,27 @@ static void handle_client(int client_fd) {
 
             int port_id = attach_vhost_port(port_name, sock_path);
             if (port_id >= 0 && port_id < MAX_PORTS) {
-                /* TODO: Dynamic Route Injection */
+                /* Parse the IPv4 address. */
+                struct in_addr addr;
+                if (inet_pton(AF_INET, ip_str, &addr) == 1) {
+                    g_ctx->ifaces[port_id].ip = addr.s_addr;
+                    g_ctx->ifaces[port_id].netmask = 0xFFFFFFFF;
+
+                    /* Insert it into the DPDK LPM Table. */
+                    if (lpm_insert(&g_ctx->lpm, addr.s_addr, 32, addr.s_addr, port_id) == true) {
+                        RTE_LOG(INFO, CTRL, "LPM injected: Route %s/32 -> Port %d\n", ip_str, port_id);
+                    }
+                }
+
+                /* Parse the MAC Address. */
+                uint8_t mac[6];
+                if (sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                    &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) == 6) {
+                    
+                    memcpy(g_ctx->ifaces[port_id].mac, mac, 6);
+                }
+
+                g_ctx->ifaces[port_id].configured = true;
 
                 /* To avoid lock contention in the rx_lcore polling loop, notify it about the new port
                 * using atomic bitmask. */
