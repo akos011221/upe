@@ -43,6 +43,7 @@ static void print_usage(const char *prog_name) {
     printf("  --link-wait N           Link wait timeout in seconds (default: 5)\n");
     printf("  --adaptive-sleep        Enable power-saving adaptive polling loop\n");
     printf("  --sleep-threshold N     Ignore packets <= N bytes when waking up (default: 0)\n");
+    printf("  --quiet                 Suppress periodic statistics output\n");
     printf("  --help                  Show this help message\n");
     printf("\nExample:\n");
     printf("  %s -c 0x3 -n 4 -- --dev-mode\n", prog_name);
@@ -58,6 +59,7 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
     config->link_wait_sec = DEFAULT_LINK_WAIT_SEC;
     config->adaptive_sleep = false;
     config->sleep_threshold = 0;
+    config->quiet = false;
 
     static struct option long_options[] = {
         {"dev-mode", no_argument, NULL, 'd'},
@@ -67,6 +69,7 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
         {"link-wait", required_argument, NULL, 'l'},
         {"adaptive-sleep", no_argument, NULL, 'S'},
         {"sleep-threshold", required_argument, NULL, 'T'},
+        {"quiet", no_argument, NULL, 'q'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -107,6 +110,9 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
                     break;
             case 'T':
                     config->sleep_threshold = (uint32_t)atoi(optarg);
+                    break;
+            case 'q':
+                    config->quiet = true;
                     break;
             case 'h':
                     print_usage(argv[0]);
@@ -433,7 +439,9 @@ int main(int argc, char **argv) {
             }
         } else {
             /* Normal mode */
-            print_stats(&g_router.rx_ctx);
+            if (!g_router.config.quiet) {
+                print_stats(&g_router.rx_ctx);
+            }
         }
     }
 
