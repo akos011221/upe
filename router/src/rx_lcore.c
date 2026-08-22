@@ -7,6 +7,7 @@
 #include <rte_icmp.h>
 #include <rte_byteorder.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "latency.h"
 #include "log.h"
@@ -358,19 +359,26 @@ int rx_lcore_main(void *arg) {
 
     struct rte_mbuf *rx_mbufs[BURST_SIZE];
 
+    uint64_t idle_count = 0;
+    const uint64_t IDLE_THRESHOLD = 10000;
+
     while (!ctx->stop) {
         uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
                                                 __ATOMIC_ACQUIRE);
+        bool traffic_exceeds_threshold = false;
 
         for (uint16_t p = 0; p < MAX_PORTS; p++) {
             if (!(active_ports & (1ULL << p))) continue;
-            
+
             uint16_t nb_rx = rte_eth_rx_burst(p, 0, rx_mbufs, BURST_SIZE);
 
             if (nb_rx > 0) {
                 uint64_t ingress_tsc = rdtsc();
 
                 for (uint16_t i = 0; i < nb_rx; i++) {
+                    if (ctx->adaptive_sleep && rx_mbufs[i]->pkt_len > ctx->sleep_threshold) {
+                        traffic_exceeds_threshold = true;
+                    }
                     forward_mbuf(ctx, rx_mbufs[i], p, ingress_tsc);
                 }
             }
@@ -380,6 +388,17 @@ int rx_lcore_main(void *arg) {
         for (uint16_t p = 0; p < MAX_PORTS; p++) {
             if (active_ports & (1ULL << p)) {
                 flush_tx_buffer(p, &ctx->tx_buffers[p]);
+            }
+        }
+
+        if (ctx->adaptive_sleep) {
+            if (!traffic_exceeds_threshold) {
+                idle_count++;
+                if (idle_count > IDLE_THRESHOLD) {
+                    usleep(10);
+                }
+            } else {
+                idle_count = 0;
             }
         }
     }

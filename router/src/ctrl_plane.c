@@ -91,7 +91,7 @@ static void handle_client(int client_fd) {
                     memcpy(g_ctx->ifaces[port_id].mac, mac, 6);
                 }
 
-                g_ctx->ifaces[port_id].configured = true
+                g_ctx->ifaces[port_id].configured = true;
 
                 /* To avoid lock contention in the rx_lcore polling loop, notify it about the new port
                 * using atomic bitmask. */
