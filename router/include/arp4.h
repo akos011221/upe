@@ -1,21 +1,21 @@
 #ifndef ARP4_H
 #define ARP4_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
-#define ARP_TABLE_CAPACITY  512
-#define ARP_MAX_PROBES      16
+#define ARP_TABLE_CAPACITY 512
+#define ARP_MAX_PROBES 16
 
 typedef struct {
-    uint32_t    ip;     /* Network byte order key */
-    uint8_t     mac[6]; /* Resolved value */
-    bool        occupied;
+    uint32_t ip;    /* Network byte order key */
+    uint8_t mac[6]; /* Resolved value */
+    bool occupied;
 } arp4_entry_t;
 
 typedef struct {
     arp4_entry_t entries[ARP_TABLE_CAPACITY];
-    uint32_t     arp_miss_count;
+    uint32_t arp_miss_count;
 } arp4_table_t;
 
 /* API Methods */

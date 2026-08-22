@@ -1,29 +1,27 @@
+#include <getopt.h>
+#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <unistd.h>
-#include <stdbool.h>
-#include <getopt.h>
 
 /* DPDK headers */
 #include <rte_eal.h>
+#include <rte_errno.h>
 #include <rte_ethdev.h>
+#include <rte_launch.h>
+#include <rte_lcore.h>
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
-#include <rte_lcore.h>
-#include <rte_launch.h>
-#include <rte_errno.h>
 
 /* UPE engine headers */
-#include "log.h"
 #include "latency.h"
+#include "log.h"
 
-#include "router.h"
-#include "mac_table.h"
 #include "ctrl_plane.h"
-
-
+#include "mac_table.h"
+#include "router.h"
 
 static router_state_t g_router;
 
@@ -61,73 +59,69 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
     config->sleep_threshold = 0;
     config->quiet = false;
 
-    static struct option long_options[] = {
-        {"dev-mode", no_argument, NULL, 'd'},
-        {"benchmark", no_argument, NULL, 'b'},
-        {"benchmark-duration", required_argument, NULL, 'D'},
-        {"aging-timeout", required_argument, NULL, 'a'},
-        {"link-wait", required_argument, NULL, 'l'},
-        {"adaptive-sleep", no_argument, NULL, 'S'},
-        {"sleep-threshold", required_argument, NULL, 'T'},
-        {"quiet", no_argument, NULL, 'q'},
-        {"help", no_argument, NULL, 'h'},
-        {NULL, 0, NULL, 0}
-    };
+    static struct option long_options[] = {{"dev-mode", no_argument, NULL, 'd'},
+                                           {"benchmark", no_argument, NULL, 'b'},
+                                           {"benchmark-duration", required_argument, NULL, 'D'},
+                                           {"aging-timeout", required_argument, NULL, 'a'},
+                                           {"link-wait", required_argument, NULL, 'l'},
+                                           {"adaptive-sleep", no_argument, NULL, 'S'},
+                                           {"sleep-threshold", required_argument, NULL, 'T'},
+                                           {"quiet", no_argument, NULL, 'q'},
+                                           {"help", no_argument, NULL, 'h'},
+                                           {NULL, 0, NULL, 0}};
 
     int opt;
     while ((opt = getopt_long(argc, argv, "", long_options, NULL)) != -1) {
         switch (opt) {
-            case 'd':
-                config->dev_mode = true;
-                break;
-            case 'b':
-                config->benchmark_mode = true;
-                break;
-            case 'D':
-                config->benchmark_duration_sec = (uint32_t)atoi(optarg);
-                if (config->benchmark_duration_sec < 1 ||
-                    config->benchmark_duration_sec > 3600) {
-                        log_msg(LOG_ERROR, "Benchmark duration must be 1-3600 seconds");
-                        return -1;
-                    }
-                    break;
-            case 'a':
-                    config->aging_timeout_sec = (uint32_t)atoi(optarg);
-                    if (config->aging_timeout_sec < 1) {
-                        log_msg(LOG_ERROR, "Aging timeout must be >= 1 second");
-                        return -1;
-                    }
-                    break;
-            case 'l':
-                    config->link_wait_sec = (uint32_t)atoi(optarg);
-                    if (config->link_wait_sec < 1 || config->link_wait_sec > 60) {
-                        log_msg(LOG_ERROR, "Link wait must be 1-60 seconds");
-                        return -1;
-                    }
-                    break;
-            case 'S':
-                    config->adaptive_sleep = true;
-                    break;
-            case 'T':
-                    config->sleep_threshold = (uint32_t)atoi(optarg);
-                    break;
-            case 'q':
-                    config->quiet = true;
-                    break;
-            case 'h':
-                    print_usage(argv[0]);
-                    exit(0);
-            default:
-                    print_usage(argv[0]);
-                    return -1;
+        case 'd':
+            config->dev_mode = true;
+            break;
+        case 'b':
+            config->benchmark_mode = true;
+            break;
+        case 'D':
+            config->benchmark_duration_sec = (uint32_t)atoi(optarg);
+            if (config->benchmark_duration_sec < 1 || config->benchmark_duration_sec > 3600) {
+                log_msg(LOG_ERROR, "Benchmark duration must be 1-3600 seconds");
+                return -1;
+            }
+            break;
+        case 'a':
+            config->aging_timeout_sec = (uint32_t)atoi(optarg);
+            if (config->aging_timeout_sec < 1) {
+                log_msg(LOG_ERROR, "Aging timeout must be >= 1 second");
+                return -1;
+            }
+            break;
+        case 'l':
+            config->link_wait_sec = (uint32_t)atoi(optarg);
+            if (config->link_wait_sec < 1 || config->link_wait_sec > 60) {
+                log_msg(LOG_ERROR, "Link wait must be 1-60 seconds");
+                return -1;
+            }
+            break;
+        case 'S':
+            config->adaptive_sleep = true;
+            break;
+        case 'T':
+            config->sleep_threshold = (uint32_t)atoi(optarg);
+            break;
+        case 'q':
+            config->quiet = true;
+            break;
+        case 'h':
+            print_usage(argv[0]);
+            exit(0);
+        default:
+            print_usage(argv[0]);
+            return -1;
         }
     }
 
     return 0;
 }
 
-int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
-                     uint32_t link_wait_sec) {
+int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool, uint32_t link_wait_sec) {
     struct rte_eth_conf port_conf = {0};
     const uint16_t rx_rings = 1;
     const uint16_t tx_rings = 1;
@@ -139,60 +133,53 @@ int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
     /* Get device info */
     ret = rte_eth_dev_info_get(port_id, &dev_info);
     if (ret != 0) {
-        log_msg(LOG_ERROR, "Failed to get device info for port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to get device info for port %u: %s", port_id,
+                rte_strerror(-ret));
         return ret;
     }
 
     /* Configure the device */
     ret = rte_eth_dev_configure(port_id, rx_rings, tx_rings, &port_conf);
     if (ret != 0) {
-        log_msg(LOG_ERROR, "Failed to configure port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to configure port %u: %s", port_id, rte_strerror(-ret));
         return ret;
     }
 
     /* Adjust descriptor counts if needed */
     ret = rte_eth_dev_adjust_nb_rx_tx_desc(port_id, &nb_rxd, &nb_txd);
     if (ret != 0) {
-        log_msg(LOG_ERROR, "Failed to adjust descriptor counts for port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to adjust descriptor counts for port %u: %s", port_id,
+                rte_strerror(-ret));
         return ret;
     }
 
     /* Setup RX queue */
-    ret = rte_eth_rx_queue_setup(port_id, 0, nb_rxd,
-                                 rte_eth_dev_socket_id(port_id),
-                                 NULL, mbuf_pool);
+    ret =
+        rte_eth_rx_queue_setup(port_id, 0, nb_rxd, rte_eth_dev_socket_id(port_id), NULL, mbuf_pool);
     if (ret < 0) {
-        log_msg(LOG_ERROR, "Failed to setup RX queue for port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to setup RX queue for port %u: %s", port_id, rte_strerror(-ret));
         return ret;
     }
 
     /* Setup TX queue */
-    ret = rte_eth_tx_queue_setup(port_id, 0, nb_txd,
-                                 rte_eth_dev_socket_id(port_id),
-                                 NULL);
+    ret = rte_eth_tx_queue_setup(port_id, 0, nb_txd, rte_eth_dev_socket_id(port_id), NULL);
     if (ret < 0) {
-        log_msg(LOG_ERROR, "Failed to setup TX queue for port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to setup TX queue for port %u: %s", port_id, rte_strerror(-ret));
         return ret;
     }
 
     /* Start the device */
     ret = rte_eth_dev_start(port_id);
     if (ret < 0) {
-        log_msg(LOG_ERROR, "Failed to start port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to start port %u: %s", port_id, rte_strerror(-ret));
         return ret;
     }
 
     /* Enable promiscuous mode */
     ret = rte_eth_promiscuous_enable(port_id);
     if (ret != 0) {
-        log_msg(LOG_ERROR, "Failed to enable promiscuous mode on port %u: %s",
-                port_id, rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to enable promiscuous mode on port %u: %s", port_id,
+                rte_strerror(-ret));
         return ret;
     }
 
@@ -204,16 +191,14 @@ int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
     do {
         ret = rte_eth_link_get_nowait(port_id, &link);
         if (ret < 0) {
-            log_msg(LOG_ERROR, "Failed to get link status for port %u: %s",
-                    port_id, rte_strerror(-ret));
+            log_msg(LOG_ERROR, "Failed to get link status for port %u: %s", port_id,
+                    rte_strerror(-ret));
             return ret;
         }
 
         if (link.link_status == RTE_ETH_LINK_UP) {
-            log_msg(LOG_INFO, "Port %u: Link up. Speed %u Mbps, %s",
-                    port_id, link.link_speed,
-                    (link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ? 
-                    "full-duplex": "half-duplex");
+            log_msg(LOG_INFO, "Port %u: Link up. Speed %u Mbps, %s", port_id, link.link_speed,
+                    (link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ? "full-duplex" : "half-duplex");
             return 0;
         }
 
@@ -222,8 +207,8 @@ int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
     } while (wait_count < max_wait);
 
     /* Link still down after timeout */
-    log_msg(LOG_WARN, "Port %u: Link down after %u second timeout, continuing anyway",
-            port_id, link_wait_sec);
+    log_msg(LOG_WARN, "Port %u: Link down after %u second timeout, continuing anyway", port_id,
+            link_wait_sec);
     return 0;
 }
 
@@ -242,17 +227,15 @@ static void print_stats(const rx_lcore_ctx_t *ctx) {
 
         log_msg(LOG_INFO,
                 "Port %u: pkts=%lu, p50=%lu ns, p99=%lu ns, p999=%lu ns, "
-                 "min=%lu ns, max=%lu ns",
-                 port, hist->total_count, p50, p99, p999,
-                 hist->min_ns, hist->max_ns);
+                "min=%lu ns, max=%lu ns",
+                port, hist->total_count, p50, p99, p999, hist->min_ns, hist->max_ns);
     }
 
     log_msg(LOG_INFO,
             "Forwarding: pkts=%lu, bytes=%lu, flooded=%lu, dropped=%lu, "
             "pool_exhausted=%lu, mac_table_full=%lu",
-            ctx->packets_forwarded, ctx->bytes_forwarded,
-            ctx->packets_flooded, ctx->packets_dropped,
-            ctx->pool_exhaustion_count, ctx->mac_table.table_full_count);
+            ctx->packets_forwarded, ctx->bytes_forwarded, ctx->packets_flooded,
+            ctx->packets_dropped, ctx->pool_exhaustion_count, ctx->mac_table.table_full_count);
 }
 
 int main(int argc, char **argv) {
@@ -265,8 +248,7 @@ int main(int argc, char **argv) {
 
     ret = rte_eal_init(argc, argv);
     if (ret < 0) {
-        log_msg(LOG_ERROR, "EAL initialization failed: %s",
-                rte_strerror(rte_errno));
+        log_msg(LOG_ERROR, "EAL initialization failed: %s", rte_strerror(rte_errno));
         return EXIT_FAILURE;
     }
 
@@ -281,8 +263,7 @@ int main(int argc, char **argv) {
 
     unsigned int nb_lcores = rte_lcore_count();
     if (nb_lcores < 2) {
-        log_msg(LOG_ERROR, "At least 2 lcores are required (main + 1 worker), got %u",
-                nb_lcores);
+        log_msg(LOG_ERROR, "At least 2 lcores are required (main + 1 worker), got %u", nb_lcores);
         rte_eal_cleanup();
         return EXIT_FAILURE;
     }
@@ -293,18 +274,11 @@ int main(int argc, char **argv) {
     log_msg(LOG_INFO, "TSC calibration: %.2f cycles/ns", cycles_per_ns);
     g_router.rx_ctx.cycles_per_ns = cycles_per_ns;
 
-    g_router.mbuf_pool = rte_pktmbuf_pool_create(
-        "mbuf_pool",
-        MBUF_POOL_SIZE,
-        MBUF_CACHE_SIZE,
-        0,
-        MBUF_DATA_SIZE,
-        rte_socket_id()
-    );
+    g_router.mbuf_pool = rte_pktmbuf_pool_create("mbuf_pool", MBUF_POOL_SIZE, MBUF_CACHE_SIZE, 0,
+                                                 MBUF_DATA_SIZE, rte_socket_id());
 
     if (g_router.mbuf_pool == NULL) {
-        log_msg(LOG_ERROR, "Failed to create mbuf pool: %s",
-                rte_strerror(rte_errno));
+        log_msg(LOG_ERROR, "Failed to create mbuf pool: %s", rte_strerror(rte_errno));
         rte_eal_cleanup();
         return EXIT_FAILURE;
     }
@@ -317,16 +291,14 @@ int main(int argc, char **argv) {
 
         ret = rte_eal_hotplug_add("vdev", "net_tap0", "");
         if (ret < 0) {
-            log_msg(LOG_ERROR, "Failed to create net_tap0: %s",
-                    rte_strerror(-ret));
+            log_msg(LOG_ERROR, "Failed to create net_tap0: %s", rte_strerror(-ret));
             rte_eal_cleanup();
             return EXIT_FAILURE;
         }
 
         ret = rte_eal_hotplug_add("vdev", "net_tap1", "");
         if (ret < 0) {
-            log_msg(LOG_ERROR, "Failed to create net_tap1: %s",
-                    rte_strerror(-ret));
+            log_msg(LOG_ERROR, "Failed to create net_tap1: %s", rte_strerror(-ret));
             rte_eal_cleanup();
             return EXIT_FAILURE;
         }
@@ -352,11 +324,9 @@ int main(int argc, char **argv) {
 
         g_router.rx_ctx.active_ports_mask |= (1ULL << port_id);
 
-        ret = port_init(port_id, g_router.mbuf_pool,
-                        g_router.config.link_wait_sec);
+        ret = port_init(port_id, g_router.mbuf_pool, g_router.config.link_wait_sec);
         if (ret < 0) {
-            log_msg(LOG_ERROR, "Failed to initialize port %u",
-                    port_id);
+            log_msg(LOG_ERROR, "Failed to initialize port %u", port_id);
             rte_eal_cleanup();
             return EXIT_FAILURE;
         }
@@ -364,17 +334,14 @@ int main(int argc, char **argv) {
         log_msg(LOG_INFO, "Initialized port %u", port_id);
     }
 
-    mac_table_init(&g_router.rx_ctx.mac_table,
-                   g_router.config.aging_timeout_sec,
-                   cycles_per_ns);
-    
+    mac_table_init(&g_router.rx_ctx.mac_table, g_router.config.aging_timeout_sec, cycles_per_ns);
+
     g_router.rx_ctx.adaptive_sleep = g_router.config.adaptive_sleep;
     g_router.rx_ctx.sleep_threshold = g_router.config.sleep_threshold;
 
     log_msg(LOG_INFO, "Power Saving: adaptive_sleep=%d (threshold=%u bytes)",
-            g_router.config.adaptive_sleep,
-            g_router.config.sleep_threshold);
-    
+            g_router.config.adaptive_sleep, g_router.config.sleep_threshold);
+
     for (uint16_t i = 0; i < MAX_PORTS; i++) {
         latency_histogram_init(&g_router.rx_ctx.latency_hist[i]);
         g_router.rx_ctx.tx_buffers[i].count = 0;
@@ -405,11 +372,9 @@ int main(int argc, char **argv) {
     log_msg(LOG_INFO, "Launching RX worker on lcore %u", lcore_id);
 
     /* Launch RX worker on dedicated lcore */
-    ret = rte_eal_remote_launch(rx_lcore_main, &g_router.rx_ctx,
-                                lcore_id);
+    ret = rte_eal_remote_launch(rx_lcore_main, &g_router.rx_ctx, lcore_id);
     if (ret < 0) {
-        log_msg(LOG_ERROR, "Failed to launch RX worker: %s",
-                rte_strerror(-ret));
+        log_msg(LOG_ERROR, "Failed to launch RX worker: %s", rte_strerror(-ret));
         rte_eal_cleanup();
         return EXIT_FAILURE;
     }
@@ -429,8 +394,7 @@ int main(int argc, char **argv) {
         if (g_router.config.benchmark_mode) {
             uint64_t current_tsc = rdtsc();
             uint64_t elapsed_tsc = current_tsc - g_router.start_tsc;
-            double elapsed_sec = (double)elapsed_tsc /
-                                 (cycles_per_ns * 1000000000.0);
+            double elapsed_sec = (double)elapsed_tsc / (cycles_per_ns * 1000000000.0);
 
             if (elapsed_sec >= g_router.config.benchmark_duration_sec) {
                 g_router.end_tsc = current_tsc;
@@ -455,16 +419,14 @@ int main(int argc, char **argv) {
 
     /* Print final stats */
     if (g_router.config.benchmark_mode) {
-        double duration_sec = (double)(g_router.end_tsc - g_router.start_tsc) /
-                                (cycles_per_ns * 1000000000.0);
+        double duration_sec =
+            (double)(g_router.end_tsc - g_router.start_tsc) / (cycles_per_ns * 1000000000.0);
         double pps = (double)g_router.rx_ctx.packets_forwarded / duration_sec;
-        double gbps = (double)g_router.rx_ctx.bytes_forwarded * 8.0 /
-                        (duration_sec * 1000000000.0);
-        
+        double gbps = (double)g_router.rx_ctx.bytes_forwarded * 8.0 / (duration_sec * 1000000000.0);
+
         uint64_t p50 = 0, p99 = 0, p999 = 0, min_ns = 0, max_ns = 0;
         for (uint16_t port = 0; port < MAX_PORTS; port++) {
-            const latency_histogram_t * hist =
-                &g_router.rx_ctx.latency_hist[port];
+            const latency_histogram_t *hist = &g_router.rx_ctx.latency_hist[port];
             if (hist->total_count > 0) {
                 p50 = latency_percentile(hist, 0.50);
                 p99 = latency_percentile(hist, 0.99);
@@ -475,7 +437,7 @@ int main(int argc, char **argv) {
             }
         }
 
-            /* Print JSON to stdout */
+        /* Print JSON to stdout */
         printf("{\n");
         printf("  \"duration_sec\": %.3f,\n", duration_sec);
         printf("  \"results\": {\n");
@@ -510,8 +472,7 @@ int main(int argc, char **argv) {
         log_msg(LOG_INFO, "Stopping port %u", port_id);
         ret = rte_eth_dev_stop(port_id);
         if (ret != 0) {
-            log_msg(LOG_ERROR, "Failed to stop port %u: %s",
-                    port_id, rte_strerror(-ret));
+            log_msg(LOG_ERROR, "Failed to stop port %u: %s", port_id, rte_strerror(-ret));
         }
 
         rte_eth_dev_close(port_id);

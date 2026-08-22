@@ -1,13 +1,13 @@
 #ifndef ROUTER_H
 #define ROUTER_H
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <rte_mbuf.h>
-#include "mac_table.h"
-#include "lpm.h"
 #include "arp4.h"
 #include "latency.h"
+#include "lpm.h"
+#include "mac_table.h"
+#include <rte_mbuf.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #define MAX_PORTS 64
 
@@ -36,9 +36,9 @@ typedef struct {
 
 /* Router Interface configuration per port */
 typedef struct {
-    uint32_t ip;        /* Network byte order */
-    uint32_t netmask;   /* Network byte order */
-    uint8_t mac[6];     /* Source MAC for egress on this port */
+    uint32_t ip;      /* Network byte order */
+    uint32_t netmask; /* Network byte order */
+    uint8_t mac[6];   /* Source MAC for egress on this port */
     bool configured;
 } router_iface_t;
 
@@ -91,7 +91,6 @@ typedef struct {
 int rx_lcore_main(void *arg);
 void signal_handler(int signum);
 
-int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
-              uint32_t link_wait_sec);
+int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool, uint32_t link_wait_sec);
 
 #endif /* ROUTER_H */
