@@ -41,6 +41,8 @@ static void print_usage(const char *prog_name) {
     printf("  --benchmark-duration N  Benchmark duration in seconds (default: 10)\n");
     printf("  --aging-timeout N       MAC table aging timeout in seconds (default: 30)\n");
     printf("  --link-wait N           Link wait timeout in seconds (default: 5)\n");
+    printf("  --adaptive-sleep        Enable power-saving adaptive polling loop\n");
+    printf("  --sleep-threshold N     Ignore packets <= N bytes when waking up (default: 0)\n");
     printf("  --help                  Show this help message\n");
     printf("\nExample:\n");
     printf("  %s -c 0x3 -n 4 -- --dev-mode\n", prog_name);
@@ -54,6 +56,8 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
     config->benchmark_duration_sec = 10;
     config->aging_timeout_sec = DEFAULT_AGING_TIMEOUT_SEC;
     config->link_wait_sec = DEFAULT_LINK_WAIT_SEC;
+    config->adaptive_sleep = false;
+    config->sleep_threshold = 0;
 
     static struct option long_options[] = {
         {"dev-mode", no_argument, NULL, 'd'},
@@ -61,6 +65,8 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
         {"benchmark-duration", required_argument, NULL, 'D'},
         {"aging-timeout", required_argument, NULL, 'a'},
         {"link-wait", required_argument, NULL, 'l'},
+        {"adaptive-sleep", no_argument, NULL, 'S'},
+        {"sleep-threshold", required_argument, NULL, 'T'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -95,6 +101,12 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
                         log_msg(LOG_ERROR, "Link wait must be 1-60 seconds");
                         return -1;
                     }
+                    break;
+            case 'S':
+                    config->adaptive_sleep = true;
+                    break;
+            case 'T':
+                    config->sleep_threshold = (uint32_t)atoi(optarg);
                     break;
             case 'h':
                     print_usage(argv[0]);
@@ -349,6 +361,13 @@ int main(int argc, char **argv) {
     mac_table_init(&g_router.rx_ctx.mac_table,
                    g_router.config.aging_timeout_sec,
                    cycles_per_ns);
+    
+    g_router.rx_ctx.adaptive_sleep = g_router.config.adaptive_sleep;
+    g_router.rx_ctx.sleep_threshold = g_router.config.sleep_threshold;
+
+    log_msg(LOG_INFO, "Power Saving: adaptive_sleep=%d (threshold=%u bytes)",
+            g_router.config.adaptive_sleep,
+            g_router.config.sleep_threshold);
     
     for (uint16_t i = 0; i < MAX_PORTS; i++) {
         latency_histogram_init(&g_router.rx_ctx.latency_hist[i]);

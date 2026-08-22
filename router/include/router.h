@@ -29,6 +29,8 @@ typedef struct {
     uint32_t benchmark_duration_sec;
     uint32_t aging_timeout_sec; /* MAC table aging timeout */
     uint32_t link_wait_sec;
+    bool adaptive_sleep;
+    uint32_t sleep_threshold;
 } router_config_t;
 
 /* Router Interface configuration per port */
@@ -70,6 +72,9 @@ typedef struct {
 
     double cycles_per_ns;
     volatile bool stop;
+
+    bool adaptive_sleep;
+    uint32_t sleep_threshold;
 } rx_lcore_ctx_t;
 
 /* Global router state */
