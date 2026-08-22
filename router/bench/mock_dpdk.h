@@ -29,7 +29,7 @@
 
 #define MAC_ADDR_LEN 6
 #define RTE_PKTMBUF_HEADROOM 128
-#define NUM_PORTS 2
+#define MAX_PORTS 2
 #define BURST_SIZE 32
 #define MOCK_MBUF_SIZE 2048
 

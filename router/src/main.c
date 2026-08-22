@@ -21,6 +21,8 @@
 
 #include "router.h"
 #include "mac_table.h"
+#include "ctrl_plane.h"
+
 
 
 static router_state_t g_router;
@@ -106,7 +108,7 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
     return 0;
 }
 
-static int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
+int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
                      uint32_t link_wait_sec) {
     struct rte_eth_conf port_conf = {0};
     const uint16_t rx_rings = 1;
@@ -209,7 +211,7 @@ static int port_init(uint16_t port_id, struct rte_mempool *mbuf_pool,
 
 static void print_stats(const rx_lcore_ctx_t *ctx) {
     /* Print latency histogram for each port */
-    for (uint16_t port = 0; port < NUM_PORTS; port++) {
+    for (uint16_t port = 0; port < MAX_PORTS; port++) {
         const latency_histogram_t *hist = &ctx->latency_hist[port];
 
         if (hist->total_count == 0) {
@@ -318,19 +320,19 @@ int main(int argc, char **argv) {
         log_msg(LOG_INFO, "Found %u physical ports", nb_ports);
     }
 
-    if (nb_ports != NUM_PORTS) {
-        log_msg(LOG_ERROR, "Expected %u ports, found %u", NUM_PORTS, nb_ports);
+    if (nb_ports == 0) {
+        log_msg(LOG_ERROR, "No ports found. Cannot start router.");
         rte_eal_cleanup();
         return EXIT_FAILURE;
     }
 
     uint16_t port_id;
     RTE_ETH_FOREACH_DEV(port_id) {
-        if (port_id >= NUM_PORTS) {
-            break;
-        }
+        if (port_id >= MAX_PORTS) break;
 
         g_router.port_ids[port_id] = port_id;
+
+        g_router.rx_ctx.active_ports_mask |= (1ULL << port_id);
 
         ret = port_init(port_id, g_router.mbuf_pool,
                         g_router.config.link_wait_sec);
@@ -348,7 +350,7 @@ int main(int argc, char **argv) {
                    g_router.config.aging_timeout_sec,
                    cycles_per_ns);
     
-    for (uint16_t i = 0; i < NUM_PORTS; i++) {
+    for (uint16_t i = 0; i < MAX_PORTS; i++) {
         latency_histogram_init(&g_router.rx_ctx.latency_hist[i]);
         g_router.rx_ctx.tx_buffers[i].count = 0;
     }
@@ -359,6 +361,13 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+
+    /* Start the IPC UNIX Socket Server */
+    if (ctrl_plane_start(&g_router.rx_ctx, g_router.mbuf_pool) != 0) {
+        log_msg(LOG_ERROR, "Failed to start Control Plane IPC server");
+        rte_eal_cleanup();
+        return EXIT_FAILURE;
+    }
 
     /* Get the first worker lcore */
     lcore_id = rte_get_next_lcore(-1, 1, 0);
@@ -426,7 +435,7 @@ int main(int argc, char **argv) {
                         (duration_sec * 1000000000.0);
         
         uint64_t p50 = 0, p99 = 0, p999 = 0, min_ns = 0, max_ns = 0;
-        for (uint16_t port = 0; port < NUM_PORTS; port++) {
+        for (uint16_t port = 0; port < MAX_PORTS; port++) {
             const latency_histogram_t * hist =
                 &g_router.rx_ctx.latency_hist[port];
             if (hist->total_count > 0) {
@@ -467,7 +476,7 @@ int main(int argc, char **argv) {
 
     /* Stop and close ports */
     RTE_ETH_FOREACH_DEV(port_id) {
-        if (port_id >= NUM_PORTS) {
+        if (port_id >= MAX_PORTS) {
             break;
         }
 

@@ -89,6 +89,7 @@ add_executable(upe-router
   router/src/lpm.c
   router/src/arp4.c
   router/src/rx_lcore.c
+  router/src/ctrl_plane.c
   src/latency.c
   src/log.c
 )

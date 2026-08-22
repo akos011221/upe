@@ -36,6 +36,9 @@ static void setup_ctx(rx_lcore_ctx_t *ctx) {
     memset(ctx, 0, sizeof(rx_lcore_ctx_t));
     mac_table_init(&ctx->mac_table, 30, 2.0);
     ctx->cycles_per_ns = 2.0;
+
+    /* Plug in Port 0 and Port 1 */
+    ctx->active_ports_mask = (1ULL << 0) | (1ULL << 1);
 }
 
 static void test_mac_learning_and_flooding() {
