@@ -1,20 +1,20 @@
+#include <rte_arp.h>
+#include <rte_byteorder.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_ether.h>
-#include <rte_mbuf.h>
-#include <rte_ip.h>
-#include <rte_arp.h>
 #include <rte_icmp.h>
-#include <rte_byteorder.h>
+#include <rte_ip.h>
+#include <rte_mbuf.h>
 #include <string.h>
 #include <unistd.h>
 
+#include "arp4.h"
 #include "latency.h"
 #include "log.h"
+#include "lpm.h"
 #include "mac_table.h"
 #include "router.h"
-#include "arp4.h"
-#include "lpm.h"
 
 /* Get pointer to the Ethernet header inside an mbuf. */
 static inline struct rte_ether_hdr *eth_hdr(struct rte_mbuf *mbuf) {
@@ -51,11 +51,13 @@ static void send_arp_request(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
     mbuf->pkt_len = pkt_len;
 
     struct rte_ether_hdr *eth = eth_hdr(mbuf);
-    struct rte_arp_hdr *arp = rte_pktmbuf_mtod_offset(mbuf, struct rte_arp_hdr *, sizeof(struct rte_ether_hdr));
+    struct rte_arp_hdr *arp =
+        rte_pktmbuf_mtod_offset(mbuf, struct rte_arp_hdr *, sizeof(struct rte_ether_hdr));
 
     /* Ethernet hdr */
     memset(&eth->dst_addr, 0xFF, 6); /* Broadcast */
-    rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac, &eth->src_addr);
+    rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac,
+                        &eth->src_addr);
     eth->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
 
     /* ARP hdr */
@@ -65,7 +67,8 @@ static void send_arp_request(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
     arp->arp_plen = 4;
     arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REQUEST);
 
-    rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac, &arp->arp_data.arp_sha);
+    rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac,
+                        &arp->arp_data.arp_sha);
     arp->arp_data.arp_sip = ctx->ifaces[egress_port].ip;
     memset(&arp->arp_data.arp_tha, 0, 6);
     arp->arp_data.arp_tip = target_ip;
@@ -74,15 +77,17 @@ static void send_arp_request(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
 }
 
 /* Handle ARP packets (requests, replies). */
-static bool handle_arp(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port, uint64_t ingress_tsc) {
+static bool handle_arp(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port,
+                       uint64_t ingress_tsc) {
     if (!ctx->ifaces[ingress_port].configured) return false;
 
     struct rte_ether_hdr *eth = eth_hdr(mbuf);
-    struct rte_arp_hdr *arp = rte_pktmbuf_mtod_offset(mbuf, struct rte_arp_hdr *, sizeof(struct rte_ether_hdr));
+    struct rte_arp_hdr *arp =
+        rte_pktmbuf_mtod_offset(mbuf, struct rte_arp_hdr *, sizeof(struct rte_ether_hdr));
 
     if (rte_be_to_cpu_16(arp->arp_hardware) != RTE_ARP_HRD_ETHER ||
-        rte_be_to_cpu_16(arp->arp_protocol) != RTE_ETHER_TYPE_IPV4 ||
-        arp->arp_hlen != 6 || arp->arp_plen != 4) {
+        rte_be_to_cpu_16(arp->arp_protocol) != RTE_ETHER_TYPE_IPV4 || arp->arp_hlen != 6 ||
+        arp->arp_plen != 4) {
         return false;
     }
 
@@ -94,21 +99,24 @@ static bool handle_arp(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingr
     if (op == RTE_ARP_OP_REQUEST) {
         if (tip == my_ip) {
             rte_ether_addr_copy(&eth->src_addr, &eth->dst_addr);
-            rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac, &eth->src_addr);
+            rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac,
+                                &eth->src_addr);
 
             arp->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
 
             rte_ether_addr_copy(&arp->arp_data.arp_sha, &arp->arp_data.arp_tha);
             arp->arp_data.arp_tip = arp->arp_data.arp_sip;
 
-            rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac, &arp->arp_data.arp_sha);
+            rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac,
+                                &arp->arp_data.arp_sha);
             arp->arp_data.arp_sip = my_ip;
 
             /* Learn the sender's MAC, IP. */
             arp4_insert(&ctx->arp4, sip, arp->arp_data.arp_tha.addr_bytes);
 
             uint64_t egress_tsc = rdtsc();
-            latency_record(&ctx->latency_hist[ingress_port], egress_tsc - ingress_tsc, ctx->cycles_per_ns);
+            latency_record(&ctx->latency_hist[ingress_port], egress_tsc - ingress_tsc,
+                           ctx->cycles_per_ns);
             enqueue_tx(ingress_port, &ctx->tx_buffers[ingress_port], mbuf);
 
             return true;
@@ -126,9 +134,11 @@ static bool handle_arp(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingr
 }
 
 /* Handle ICMP Echo Requests to the router. */
-static bool handle_icmp_echo(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port, uint64_t ingress_tsc) {
+static bool handle_icmp_echo(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port,
+                             uint64_t ingress_tsc) {
     struct rte_ether_hdr *eth = eth_hdr(mbuf);
-    struct rte_ipv4_hdr *ipv4 = rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+    struct rte_ipv4_hdr *ipv4 =
+        rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
 
     uint16_t ihl_bytes = (ipv4->version_ihl & 0x0f) * 4;
     struct rte_icmp_hdr *icmp = (struct rte_icmp_hdr *)((uint8_t *)ipv4 + ihl_bytes);
@@ -136,7 +146,8 @@ static bool handle_icmp_echo(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
     if (icmp->icmp_type == RTE_IP_ICMP_ECHO_REQUEST) {
         /* Swap MACs */
         rte_ether_addr_copy(&eth->src_addr, &eth->dst_addr);
-        rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac, &eth->src_addr);
+        rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[ingress_port].mac,
+                            &eth->src_addr);
 
         /* Swap IPs */
         uint32_t tmp_ip = ipv4->src_addr;
@@ -153,7 +164,8 @@ static bool handle_icmp_echo(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
         icmp->icmp_cksum = ~cksum & 0xFFFF;
 
         uint64_t egress_tsc = rdtsc();
-        latency_record(&ctx->latency_hist[ingress_port], egress_tsc - ingress_tsc, ctx->cycles_per_ns);
+        latency_record(&ctx->latency_hist[ingress_port], egress_tsc - ingress_tsc,
+                       ctx->cycles_per_ns);
         enqueue_tx(ingress_port, &ctx->tx_buffers[ingress_port], mbuf);
 
         return true;
@@ -163,11 +175,13 @@ static bool handle_icmp_echo(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_
 }
 
 /* Handle IPv4 packets */
-static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port, uint64_t ingress_tsc) {
+static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ingress_port,
+                        uint64_t ingress_tsc) {
     if (!ctx->ifaces[ingress_port].configured) return false;
 
     struct rte_ether_hdr *eth = eth_hdr(mbuf);
-    struct rte_ipv4_hdr *ipv4 = rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+    struct rte_ipv4_hdr *ipv4 =
+        rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
 
     uint32_t dst_ip = ipv4->dst_addr;
 
@@ -175,7 +189,7 @@ static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ing
     for (uint16_t i = 0; i < MAX_PORTS; i++) {
         if (ctx->ifaces[i].configured && ctx->ifaces[i].ip == dst_ip) {
             ctx->packets_local++;
-           
+
             /* Responding to ICMP */
             if (ipv4->next_proto_id == IPPROTO_ICMP) {
                 if (handle_icmp_echo(ctx, mbuf, ingress_port, ingress_tsc)) {
@@ -224,7 +238,8 @@ static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ing
     ipv4->hdr_checksum = 0;
     ipv4->hdr_checksum = rte_ipv4_cksum(ipv4);
 
-    rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac, &eth->src_addr);
+    rte_ether_addr_copy((const struct rte_ether_addr *)ctx->ifaces[egress_port].mac,
+                        &eth->src_addr);
     rte_ether_addr_copy((const struct rte_ether_addr *)next_hop_mac, &eth->dst_addr);
 
     uint64_t egress_tsc = rdtsc();
@@ -278,7 +293,7 @@ static void forward_mbuf(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t in
             return;
         }
 
-        /* If it's broadcast (DHCP, LLDP...) and not consumed, 
+        /* If it's broadcast (DHCP, LLDP...) and not consumed,
          * fall through to L2 flooding. */
     }
 
@@ -310,8 +325,7 @@ static void forward_mbuf(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t in
         uint16_t egress_ports[MAX_PORTS];
         uint16_t n_egress = 0;
 
-        uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
-                                                __ATOMIC_ACQUIRE);
+        uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask, __ATOMIC_ACQUIRE);
 
         for (uint16_t p = 0; p < MAX_PORTS; p++) {
             /* Port's bit should be 1 and not ingress port. */
@@ -363,8 +377,7 @@ int rx_lcore_main(void *arg) {
     const uint64_t IDLE_THRESHOLD = 10000;
 
     while (!ctx->stop) {
-        uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
-                                                __ATOMIC_ACQUIRE);
+        uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask, __ATOMIC_ACQUIRE);
         bool traffic_exceeds_threshold = false;
 
         for (uint16_t p = 0; p < MAX_PORTS; p++) {
@@ -406,8 +419,7 @@ int rx_lcore_main(void *arg) {
     log_msg(LOG_INFO, "RX lcore %u stopping, will flush TX buffers...", rte_lcore_id());
 
     /* Final flush before shutdown. */
-    uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask,
-                                            __ATOMIC_ACQUIRE);
+    uint64_t active_ports = __atomic_load_n(&ctx->active_ports_mask, __ATOMIC_ACQUIRE);
     for (uint16_t p = 0; p < MAX_PORTS; p++) {
         if (active_ports & (1ULL << p)) {
             flush_tx_buffer(p, &ctx->tx_buffers[p]);

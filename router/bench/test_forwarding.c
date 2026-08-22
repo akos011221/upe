@@ -184,17 +184,20 @@ static void test_icmp_echo_reply() {
 
     /* Build ICMP Echo Request packet from Host A to Router's Port 0 IP */
     struct rte_mbuf *pkt = mock_build_packet(0, MAC_HOST_A, MAC_ROUTER_0, RTE_ETHER_TYPE_IPV4);
-    pkt->data_len = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr);
+    pkt->data_len =
+        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_icmp_hdr);
     pkt->pkt_len = pkt->data_len;
 
-    struct rte_ipv4_hdr *ipv4 = (struct rte_ipv4_hdr *)((uint8_t *)pkt->buf_addr + sizeof(struct rte_ether_hdr));
+    struct rte_ipv4_hdr *ipv4 =
+        (struct rte_ipv4_hdr *)((uint8_t *)pkt->buf_addr + sizeof(struct rte_ether_hdr));
     ipv4->version_ihl = 0x45;
     ipv4->time_to_live = 64;
     ipv4->next_proto_id = IPPROTO_ICMP;
     ipv4->src_addr = rte_cpu_to_be_32(RTE_IPV4(10, 128, 0, 50));
     ipv4->dst_addr = IP_ROUTER_0;
 
-    struct rte_icmp_hdr *icmp = (struct rte_icmp_hdr *)((uint8_t *)ipv4 + sizeof(struct rte_ipv4_hdr));
+    struct rte_icmp_hdr *icmp =
+        (struct rte_icmp_hdr *)((uint8_t *)ipv4 + sizeof(struct rte_ipv4_hdr));
     icmp->icmp_type = RTE_IP_ICMP_ECHO_REQUEST;
     icmp->icmp_code = 0;
     icmp->icmp_cksum = 0xFFFF;
@@ -210,13 +213,18 @@ static void test_icmp_echo_reply() {
     if (ctx.tx_buffers[0].count > 0) {
         struct rte_mbuf *reply_pkt = ctx.tx_buffers[0].mbufs[0];
         struct rte_ether_hdr *reply_eth = (struct rte_ether_hdr *)reply_pkt->buf_addr;
-        struct rte_ipv4_hdr *reply_ipv4 = (struct rte_ipv4_hdr *)((uint8_t *)reply_pkt->buf_addr + sizeof(struct rte_ether_hdr));
-        struct rte_icmp_hdr *reply_icmp = (struct rte_icmp_hdr *)((uint8_t *)reply_ipv4 + sizeof(struct rte_ipv4_hdr));
+        struct rte_ipv4_hdr *reply_ipv4 =
+            (struct rte_ipv4_hdr *)((uint8_t *)reply_pkt->buf_addr + sizeof(struct rte_ether_hdr));
+        struct rte_icmp_hdr *reply_icmp =
+            (struct rte_icmp_hdr *)((uint8_t *)reply_ipv4 + sizeof(struct rte_ipv4_hdr));
 
-        ASSERT(memcmp(reply_eth->dst_addr.addr_bytes, MAC_HOST_A, 6) == 0, "Reply DST MAC should be Host A");
-        ASSERT(memcmp(reply_eth->src_addr.addr_bytes, MAC_ROUTER_0, 6) == 0, "Reply SRC MAC should be Router Port 0");
+        ASSERT(memcmp(reply_eth->dst_addr.addr_bytes, MAC_HOST_A, 6) == 0,
+               "Reply DST MAC should be Host A");
+        ASSERT(memcmp(reply_eth->src_addr.addr_bytes, MAC_ROUTER_0, 6) == 0,
+               "Reply SRC MAC should be Router Port 0");
 
-        ASSERT(reply_ipv4->dst_addr == rte_cpu_to_be_32(RTE_IPV4(10, 128, 0, 50)), "Reply DST IP should be Host A");
+        ASSERT(reply_ipv4->dst_addr == rte_cpu_to_be_32(RTE_IPV4(10, 128, 0, 50)),
+               "Reply DST IP should be Host A");
         ASSERT(reply_ipv4->src_addr == IP_ROUTER_0, "Reply SRC IP should be Router Port 0");
         ASSERT(reply_icmp->icmp_type == RTE_IP_ICMP_ECHO_REPLY, "ICMP Type should be Echo Reply");
     }

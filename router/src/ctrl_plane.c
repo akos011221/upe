@@ -1,15 +1,15 @@
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <rte_eal.h>
+#include <rte_ethdev.h>
+#include <rte_log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <pthread.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/stat.h>
-#include <rte_log.h>
-#include <rte_eal.h>
-#include <rte_ethdev.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #include "ctrl_plane.h"
 
@@ -52,15 +52,13 @@ static void handle_client(int client_fd) {
     }
     buf[n] = '\0';
 
-    /* Expectation is that the command formatted as: 
+    /* Expectation is that the command formatted as:
      * "ADD_VHOST examplepod 10.128.0.50 00:11:22:33:44:55" */
     char cmd[32], pod_id[64], ip_str[32], mac_str[32];
     int parsed = sscanf(buf, "%31s %63s %31s %31s", cmd, pod_id, ip_str, mac_str);
 
     if (parsed >= 2) {
-
         if (strcmp(cmd, "ADD_TAP") == 0 && parsed == 4) {
-
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
 
@@ -79,22 +77,22 @@ static void handle_client(int client_fd) {
 
                     /* Insert it into the DPDK LPM Table. */
                     if (lpm_insert(&g_ctx->lpm, addr.s_addr, 32, addr.s_addr, port_id) == true) {
-                        RTE_LOG(INFO, CTRL, "LPM injected: Route %s/32 -> Port %d\n", ip_str, port_id);
+                        RTE_LOG(INFO, CTRL, "LPM injected: Route %s/32 -> Port %d\n", ip_str,
+                                port_id);
                     }
                 }
 
                 /* Parse the MAC Address. */
                 uint8_t mac[6];
-                if (sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                    &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) == 6) {
-                    
+                if (sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2],
+                           &mac[3], &mac[4], &mac[5]) == 6) {
                     memcpy(g_ctx->ifaces[port_id].mac, mac, 6);
                 }
 
                 g_ctx->ifaces[port_id].configured = true;
 
-                /* To avoid lock contention in the rx_lcore polling loop, notify it about the new port
-                * using atomic bitmask. */
+                /* To avoid lock contention in the rx_lcore polling loop, notify it about the new
+                 * port using atomic bitmask. */
                 __atomic_or_fetch(&g_ctx->active_ports_mask, (1ULL << port_id), __ATOMIC_RELEASE);
 
                 /* Response to the CNI. */
@@ -106,13 +104,11 @@ static void handle_client(int client_fd) {
             }
 
         } else if (strcmp(cmd, "DEL_TAP") == 0 && parsed == 2) {
-
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
 
             uint16_t port_id;
             if (rte_eth_dev_get_port_by_name(port_name, &port_id) == 0) {
-
                 // Stop lx_lcore from polling this port right now.
                 __atomic_and_fetch(&g_ctx->active_ports_mask, ~(1ULL << port_id), __ATOMIC_RELEASE);
 

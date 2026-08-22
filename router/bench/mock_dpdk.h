@@ -4,7 +4,8 @@
 /* Redirect rdtsc to an ignored name */
 #define rdtsc hardware_rdtsc_ignored
 
-/* Force latency.h (which defined rdtsc()) to load. It will define hardware_rdtsc_ignored instead. */
+/* Force latency.h (which defined rdtsc()) to load. It will define hardware_rdtsc_ignored instead.
+ */
 #include "latency.h"
 
 /* Undefine the redirection so we can use the clean rdtsc name */
@@ -17,13 +18,13 @@
 #define _RTE_MBUF_H_
 #define _RTE_IP_H_
 #define _RTE_ARP_H_
-#define _RTE_ICMP_H_ 
+#define _RTE_ICMP_H_
 #define _RTE_BYTEORDER_H_
 #define _RTE_BYTEORDER_X86_H_
 #define _RTE_BYTEORDER_ARM_H_
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -89,7 +90,7 @@ static inline void rte_pktmbuf_free(struct rte_mbuf *m) {
 /* Copies metadata only and shares the parent's payload (by copying just the pointer addr) */
 static inline struct rte_mbuf *rte_pktmbuf_clone(struct rte_mbuf *md, void *mp) {
     (void)mp;
-    if(!md) return NULL;
+    if (!md) return NULL;
 
     /* Create a new metadata shell, point buf_addr to the parent's data buffer */
     struct rte_mbuf *clone = (struct rte_mbuf *)malloc(sizeof(struct rte_mbuf));
@@ -108,7 +109,8 @@ static inline struct rte_mbuf *rte_pktmbuf_clone(struct rte_mbuf *md, void *mp) 
 }
 
 /* Deep copies the whole packet, allocating new memory for the payload as well */
-static inline struct rte_mbuf *rte_pktmbuf_copy(const struct rte_mbuf *m, void *pool, uint32_t offset, uint32_t length) {
+static inline struct rte_mbuf *rte_pktmbuf_copy(const struct rte_mbuf *m, void *pool,
+                                                uint32_t offset, uint32_t length) {
     (void)offset;
     (void)length;
     if (!m) return NULL;
@@ -123,7 +125,8 @@ static inline struct rte_mbuf *rte_pktmbuf_copy(const struct rte_mbuf *m, void *
 }
 
 /* Helper to build test packets */
-static inline struct rte_mbuf *mock_build_packet(uint16_t port, const uint8_t *src_mac, const uint8_t *dst_mac, uint16_t ethertype) {
+static inline struct rte_mbuf *mock_build_packet(uint16_t port, const uint8_t *src_mac,
+                                                 const uint8_t *dst_mac, uint16_t ethertype) {
     struct rte_mbuf *m = rte_pktmbuf_alloc(NULL);
     if (!m) return NULL;
 
@@ -146,7 +149,8 @@ static inline uint64_t rdtsc(void) {
 }
 
 /* Mock that the NIC hardware accepted the packets */
-static inline uint16_t rte_eth_tx_burst(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
+static inline uint16_t rte_eth_tx_burst(uint16_t port_id, uint16_t queue_id,
+                                        struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
     (void)port_id;
     (void)queue_id;
     (void)tx_pkts;
@@ -159,7 +163,8 @@ static inline unsigned int rte_lcore_id(void) {
 }
 
 /* Mock RX burst function */
-static inline uint16_t rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **rx_pkts, uint16_t nb_pkts) {
+static inline uint16_t rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id,
+                                        struct rte_mbuf **rx_pkts, uint16_t nb_pkts) {
     (void)port_id;
     (void)queue_id;
     (void)rx_pkts;
@@ -175,66 +180,68 @@ static inline uint16_t rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id, str
 #define rte_cpu_to_be_32(x) __builtin_bswap32(x)
 
 #define RTE_ETHER_TYPE_IPV4 0x0800
-#define RTE_IPV4(a, b, c, d) ((uint32_t)(((a) & 0xff) << 24) | \
-                              (((b) & 0xff) << 16) | \
-                              (((c) & 0xff) << 8)  | \
-                              ((d) & 0xff))
+#define RTE_IPV4(a, b, c, d)                                                                       \
+    ((uint32_t)(((a) & 0xff) << 24) | (((b) & 0xff) << 16) | (((c) & 0xff) << 8) | ((d) & 0xff))
 #define IPPROTO_ICMP 1
-#define RTE_ETHER_TYPE_ARP  0x0806
+#define RTE_ETHER_TYPE_ARP 0x0806
 #define RTE_ARP_HRD_ETHER 1
 #define RTE_ARP_OP_REQUEST 1
-#define RTE_ARP_OP_REPLY   2
+#define RTE_ARP_OP_REPLY 2
 
-static inline void rte_ether_addr_copy(const struct rte_ether_addr *ea_from, struct rte_ether_addr *ea_to) {
+static inline void rte_ether_addr_copy(const struct rte_ether_addr *ea_from,
+                                       struct rte_ether_addr *ea_to) {
     *ea_to = *ea_from;
 }
 
 struct rte_ipv4_hdr {
-    uint8_t  version_ihl;
-    uint8_t  type_of_service;
+    uint8_t version_ihl;
+    uint8_t type_of_service;
     uint16_t total_length;
     uint16_t packet_id;
     uint16_t fragment_offset;
-    uint8_t  time_to_live;
-    uint8_t  next_proto_id;
+    uint8_t time_to_live;
+    uint8_t next_proto_id;
     uint16_t hdr_checksum;
     uint32_t src_addr;
     uint32_t dst_addr;
 } __attribute__((__packed__));
 
 static inline uint16_t rte_ipv4_cksum(const struct rte_ipv4_hdr *ipv4_hdr) {
-    (void)ipv4_hdr; return 0;
+    (void)ipv4_hdr;
+    return 0;
 }
 
 struct rte_arp_ipv4 {
     struct rte_ether_addr arp_sha;
-    uint32_t              arp_sip;
+    uint32_t arp_sip;
     struct rte_ether_addr arp_tha;
-    uint32_t              arp_tip;
+    uint32_t arp_tip;
 } __attribute__((__packed__));
 
 struct rte_arp_hdr {
     uint16_t arp_hardware;
     uint16_t arp_protocol;
-    uint8_t  arp_hlen;
-    uint8_t  arp_plen;
+    uint8_t arp_hlen;
+    uint8_t arp_plen;
     uint16_t arp_opcode;
     struct rte_arp_ipv4 arp_data;
 } __attribute__((__packed__));
 
-#define RTE_IP_ICMP_ECHO_REPLY   0
+#define RTE_IP_ICMP_ECHO_REPLY 0
 #define RTE_IP_ICMP_ECHO_REQUEST 8
 
 struct rte_icmp_hdr {
-    uint8_t  icmp_type;
-    uint8_t  icmp_code;
+    uint8_t icmp_type;
+    uint8_t icmp_code;
     uint16_t icmp_cksum;
     uint16_t icmp_ident;
     uint16_t icmp_seq_nb;
 } __attribute__((__packed__));
 
 static inline uint16_t rte_raw_cksum(const void *buf, size_t len) {
-    (void)buf; (void)len; return 0;
+    (void)buf;
+    (void)len;
+    return 0;
 }
 
 #endif // MOCK_DPDK_H
