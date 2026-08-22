@@ -23,5 +23,6 @@ typedef struct {
 void lpm_init(lpm_table_t *table);
 bool lpm_insert(lpm_table_t *table, uint32_t prefix, uint8_t prefix_len, uint32_t next_hop_ip, uint16_t egress_port);
 bool lpm_lookup(const lpm_table_t *table, uint32_t dest_ip, uint32_t *out_next_hop, uint16_t *out_port);
+bool lpm_delete(lpm_table_t *table, uint32_t prefix, uint8_t prefix_len);
 
 #endif /* LPM_H */
