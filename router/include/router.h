@@ -31,6 +31,7 @@ typedef struct {
     uint32_t link_wait_sec;
     bool adaptive_sleep;
     uint32_t sleep_threshold;
+    bool quiet;
 } router_config_t;
 
 /* Router Interface configuration per port */
