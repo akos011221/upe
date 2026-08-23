@@ -31,7 +31,12 @@ if [ "$COMMAND" = "ADD" ]; then
     # Generate random MAC address.
     POD_MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
 
-    echo "ADD_TAP ${POD_ID_SHORT} ${POD_IP} ${POD_MAC}" | nc -U $IPC_SOCKET > /dev/null
+    mkdir -p /var/run/upe/state
+    STATE_FILE="/var/run/upe/state/${CNI_CONTAINERID}.txt"
+
+    echo "ADD_TAP ${POD_ID_SHORT} ${POD_IP} ${POD_MAC}" > "$STATE_FILE"
+
+    cat "$STATE_FILE" | nc -U $IPC_SOCKET > /dev/null
 
     sleep 0.5
 
