@@ -90,6 +90,7 @@ add_executable(upe-router
   router/src/arp4.c
   router/src/rx_lcore.c
   router/src/ctrl_plane.c
+  router/src/nat.c
   src/latency.c
   src/log.c
 )
@@ -151,6 +152,11 @@ target_include_directories(test_forwarding PRIVATE
   router/include
   router/bench
   ${DPDK_INCLUDE_DIRS}
+)
+
+target_compile_options(test_forwarding PRIVATE
+  ${DPDK_CFLAGS_OTHER}
+  -D_DEFAULT_SOURCE
 )
 
 target_link_libraries(test_forwarding PRIVATE

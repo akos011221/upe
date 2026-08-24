@@ -32,6 +32,18 @@ static const uint8_t MAC_BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static const uint8_t MAC_ROUTER_0[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x00};
 #define IP_ROUTER_0 rte_cpu_to_be_32(RTE_IPV4(10, 128, 0, 1))
 
+/* Mock NAT engine */
+void nat_init(uint32_t wan_ip) {
+    (void)wan_ip;
+}
+void nat_outbound(struct rte_mbuf *m) {
+    (void)m;
+}
+int nat_inbound(struct rte_mbuf *m) {
+    (void)m;
+    return 0;
+}
+
 static void setup_ctx(rx_lcore_ctx_t *ctx) {
     memset(ctx, 0, sizeof(rx_lcore_ctx_t));
     mac_table_init(&ctx->mac_table, 30, 2.0);

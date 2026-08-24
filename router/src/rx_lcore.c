@@ -14,6 +14,7 @@
 #include "log.h"
 #include "lpm.h"
 #include "mac_table.h"
+#include "nat.h"
 #include "router.h"
 
 /* Get pointer to the Ethernet header inside an mbuf. */
@@ -179,6 +180,12 @@ static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ing
                         uint64_t ingress_tsc) {
     if (!ctx->ifaces[ingress_port].configured) return false;
 
+    if (ctx->ifaces[ingress_port].is_nat_outside) {
+        if (nat_inbound(mbuf) == 1) {
+            /* TODO: Implement counter of NAT metrics for successfully inbound NAT. */
+        }
+    }
+
     struct rte_ether_hdr *eth = eth_hdr(mbuf);
     struct rte_ipv4_hdr *ipv4 =
         rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
@@ -216,6 +223,11 @@ static bool handle_ipv4(rx_lcore_ctx_t *ctx, struct rte_mbuf *mbuf, uint16_t ing
         ctx->packets_no_route++;
         rte_pktmbuf_free(mbuf); // TODO: Send ICMP Dest Unreachable.
         return true;
+    }
+
+    if (ctx->ifaces[egress_port].is_nat_outside && ctx->wan_ip != 0) {
+        nat_outbound(mbuf);
+        next_hop_ip = ctx->wan_gateway_ip;
     }
 
     if (next_hop_ip == 0) {

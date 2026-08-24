@@ -32,6 +32,8 @@ typedef struct {
     bool adaptive_sleep;
     uint32_t sleep_threshold;
     bool quiet;
+    uint32_t wan_ip;
+    uint32_t wan_gateway_ip;
 } router_config_t;
 
 /* Router Interface configuration per port */
@@ -40,6 +42,8 @@ typedef struct {
     uint32_t netmask; /* Network byte order */
     uint8_t mac[6];   /* Source MAC for egress on this port */
     bool configured;
+    bool is_nat_outside;
+    bool is_nat_inside;
 } router_iface_t;
 
 /* Per-port TX burst buffer */
@@ -76,6 +80,9 @@ typedef struct {
 
     bool adaptive_sleep;
     uint32_t sleep_threshold;
+
+    uint32_t wan_ip;
+    uint32_t wan_gateway_ip;
 } rx_lcore_ctx_t;
 
 /* Global router state */
