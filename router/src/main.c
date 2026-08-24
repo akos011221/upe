@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <getopt.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -21,6 +22,7 @@
 
 #include "ctrl_plane.h"
 #include "mac_table.h"
+#include "nat.h"
 #include "router.h"
 
 static router_state_t g_router;
@@ -42,6 +44,8 @@ static void print_usage(const char *prog_name) {
     printf("  --adaptive-sleep        Enable power-saving adaptive polling loop\n");
     printf("  --sleep-threshold N     Ignore packets <= N bytes when waking up (default: 0)\n");
     printf("  --quiet                 Suppress periodic statistics output\n");
+    printf("  --wan-ip IP             The physical IP of the Router's WAN interface\n");
+    printf("  --wan-gw IP             The IP of the upstream Default Gateway\n");
     printf("  --help                  Show this help message\n");
     printf("\nExample:\n");
     printf("  %s -c 0x3 -n 4 -- --dev-mode\n", prog_name);
@@ -67,6 +71,8 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
                                            {"adaptive-sleep", no_argument, NULL, 'S'},
                                            {"sleep-threshold", required_argument, NULL, 'T'},
                                            {"quiet", no_argument, NULL, 'q'},
+                                           {"wan-ip", required_argument, NULL, 'W'},
+                                           {"wan-gw", required_argument, NULL, 'G'},
                                            {"help", no_argument, NULL, 'h'},
                                            {NULL, 0, NULL, 0}};
 
@@ -108,6 +114,20 @@ static int parse_app_args(int argc, char **argv, router_config_t *config) {
             break;
         case 'q':
             config->quiet = true;
+            break;
+        case 'W':
+            config->wan_ip = inet_addr(optarg);
+            if (config->wan_ip == INADDR_NONE) {
+                log_msg(LOG_ERROR, "Invalid WAN IP address format");
+                return -1;
+            }
+            break;
+        case 'G':
+            config->wan_gateway_ip = inet_addr(optarg);
+            if (config->wan_gateway_ip == INADDR_NONE) {
+                log_msg(LOG_ERROR, "Invalid WAN Gateway IP address format");
+                return -1;
+            }
             break;
         case 'h':
             print_usage(argv[0]);
@@ -331,13 +351,36 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
 
+        /* Flag physical NICs as NAT-Outside. */
+        g_router.rx_ctx.ifaces[port_id].is_nat_outside = true;
+        g_router.rx_ctx.ifaces[port_id].configured = true;
+
+        rte_eth_macaddr_get(port_id, (struct rte_ether_addr *)g_router.rx_ctx.ifaces[port_id].mac);
+
+        /* For now assume Port 0 is the uplink port. */
+        if (port_id == 0 && g_router.config.wan_ip != 0 && g_router.config.wan_gateway_ip != 0) {
+            g_router.rx_ctx.ifaces[port_id].ip = g_router.config.wan_ip;
+            lpm_insert(&g_router.rx_ctx.lpm, 0, 0, g_router.config.wan_gateway_ip, port_id);
+            log_msg(LOG_INFO, "Port %u: Default Route configured", port_id);
+        }
+
         log_msg(LOG_INFO, "Initialized port %u", port_id);
     }
 
     mac_table_init(&g_router.rx_ctx.mac_table, g_router.config.aging_timeout_sec, cycles_per_ns);
 
+    if (g_router.config.wan_ip != 0) {
+        nat_init(g_router.config.wan_ip);
+        log_msg(LOG_INFO, "NAT engine initialized");
+    } else {
+        log_msg(LOG_WARN, "NAT engine failed to initialize");
+    }
+
     g_router.rx_ctx.adaptive_sleep = g_router.config.adaptive_sleep;
     g_router.rx_ctx.sleep_threshold = g_router.config.sleep_threshold;
+
+    g_router.rx_ctx.wan_ip = g_router.config.wan_ip;
+    g_router.rx_ctx.wan_gateway_ip = g_router.config.wan_gateway_ip;
 
     log_msg(LOG_INFO, "Power Saving: adaptive_sleep=%d (threshold=%u bytes)",
             g_router.config.adaptive_sleep, g_router.config.sleep_threshold);

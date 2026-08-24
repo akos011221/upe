@@ -54,11 +54,11 @@ static void handle_client(int client_fd) {
 
     /* Expectation is that the command formatted as:
      * "ADD_VHOST examplepod 10.128.0.50 00:11:22:33:44:55" */
-    char cmd[32], pod_id[64], ip_str[32], mac_str[32];
-    int parsed = sscanf(buf, "%31s %63s %31s %31s", cmd, pod_id, ip_str, mac_str);
+    char cmd[32], pod_id[64], ip_str[32], mac_str[32], gw_str[32];
+    int parsed = sscanf(buf, "%31s %63s %31s %31s %31s", cmd, pod_id, ip_str, mac_str, gw_str);
 
     if (parsed >= 2) {
-        if (strcmp(cmd, "ADD_TAP") == 0 && parsed == 4) {
+        if (strcmp(cmd, "ADD_TAP") == 0 && parsed == 5) {
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
 
@@ -70,12 +70,13 @@ static void handle_client(int client_fd) {
             int port_id = attach_tap_port(port_name, devargs);
             if (port_id >= 0 && port_id < MAX_PORTS) {
                 /* Parse the IPv4 address. */
-                struct in_addr addr;
-                if (inet_pton(AF_INET, ip_str, &addr) == 1) {
-                    g_ctx->ifaces[port_id].ip = addr.s_addr;
+                struct in_addr addr, gw_addr;
+                if (inet_pton(AF_INET, ip_str, &addr) == 1 &&
+                    inet_pton(AF_INET, gw_str, &gw_addr) == 1) {
+                    g_ctx->ifaces[port_id].ip = gw_addr.s_addr;
                     g_ctx->ifaces[port_id].netmask = 0xFFFFFFFF;
 
-                    /* Insert it into the DPDK LPM Table. */
+                    /* Insert the endpoint IP into the DPDK LPM Table. */
                     if (lpm_insert(&g_ctx->lpm, addr.s_addr, 32, addr.s_addr, port_id) == true) {
                         RTE_LOG(INFO, CTRL, "LPM injected: Route %s/32 -> Port %d\n", ip_str,
                                 port_id);
@@ -90,6 +91,9 @@ static void handle_client(int client_fd) {
                 }
 
                 g_ctx->ifaces[port_id].configured = true;
+
+                /* Flag TAP ports as NAT-Inside. */
+                g_ctx->ifaces[port_id].is_nat_inside = true;
 
                 /* To avoid lock contention in the rx_lcore polling loop, notify it about the new
                  * port using atomic bitmask. */
