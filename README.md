@@ -19,8 +19,6 @@ Runs on any Linux system without special hardware. Uses kernel sockets for I/O.
 
 #### 2. DPDK Router Engine
 
-Full kernel bypass. Runs on physical NICs with DPDK PMD drivers.
-
 In progress...
 
 ---
