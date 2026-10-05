@@ -19,29 +19,109 @@ static struct rte_mempool *g_pool;
 
 static rx_lcore_ctx_t *g_ctx;
 static int server_fd = -1;
+static uint32_t g_endpoint_ip[MAX_PORTS];
 
-static int attach_tap_port(const char *port_name, const char *devargs) {
+static void handle_add_vhost(char *args) {
+    char endpoint_id[32], ip_str[32], mac_str[32], gw_str[32];
+
+    if (sscanf(args, "%31s %31s %31s %31s", endpoint_id, ip_str, mac_str, gw_str) != 4) {
+        RTE_LOG(ERR, CTRL, "IPC: Invalid ADD_VHOST args\n");
+        return;
+    }
+
+    /* Virtual Device Arguments */
+    char vdev_args[128];
+    char vdev_name[64];
+
+    snprintf(vdev_name, sizeof(vdev_name), "net_vhost_%s", endpoint_id);
+
+    snprintf(vdev_args, sizeof(vdev_args), "iface=/var/run/upe/%s.sock,client=0,queues=1",
+             endpoint_id);
+
+    RTE_LOG(INFO, CTRL, "Hotplugging %s with args: %s\n", vdev_name, vdev_args);
+
+    if (rte_eal_hotplug_add("vdev", vdev_name, vdev_args) < 0) {
+        RTE_LOG(ERR, CTRL, "Failed to hotplug vhost-user port %s\n", vdev_name);
+        return;
+    }
+
     uint16_t port_id;
-
-    int ret = rte_eal_hotplug_add("vdev", port_name, devargs);
-    if (ret < 0) {
-        RTE_LOG(ERR, CTRL, "Failed to hotplug %s: %s\n", port_name, strerror(-ret));
-        return ret;
+    if (rte_eth_dev_get_port_by_name(vdev_name, &port_id) != 0) {
+        RTE_LOG(ERR, CTRL, "Could not find hotplugged port %s\n", vdev_name);
+        return;
     }
 
-    ret = rte_eth_dev_get_port_by_name(port_name, &port_id);
-    if (ret < 0) return ret;
-
-    ret = port_init(port_id, g_pool, 0);
-    if (ret < 0) {
-        RTE_LOG(ERR, CTRL, "Failed to init hotplugged port %d\n", port_id);
-        return ret;
+    /* Init the port with RX/TX rings, start the device */
+    if (port_init(port_id, g_pool, 0) != 0) {
+        RTE_LOG(ERR, CTRL, "Failed to initialize port %d\n", port_id);
+        return;
     }
 
-    return port_id;
+    struct rte_ether_addr endpoint_mac, router_mac;
+    rte_ether_unformat_addr(mac_str, &endpoint_mac);
+    rte_eth_macaddr_get(port_id, &router_mac);
+
+    uint32_t endpoint_ip = inet_addr(ip_str);
+    uint32_t gw_ip = inet_addr(gw_str);
+
+    rte_ether_addr_copy(&router_mac, (struct rte_ether_addr *)g_ctx->ifaces[port_id].mac);
+    g_ctx->ifaces[port_id].ip = gw_ip;
+    g_ctx->ifaces[port_id].is_nat_outside = false;
+    g_ctx->ifaces[port_id].configured = true;
+
+    g_endpoint_ip[port_id] = endpoint_ip;
+
+    /* Seed ARP as we already know the endpoint's MAC, don't trigger pointless ARP exchange from the
+     * 1st packet */
+    arp4_insert(&g_ctx->arp4, endpoint_ip, endpoint_mac.addr_bytes);
+
+    /* /32 host route to the endpoint. */
+    lpm_insert(&g_ctx->lpm, endpoint_ip, 32, endpoint_ip, port_id);
+
+    /* Signal the packet loops in the fast path by flipping the bit */
+    __atomic_or_fetch(&g_ctx->active_ports_mask, (1ULL << port_id), __ATOMIC_RELEASE);
 }
 
-/* handle_client: Read the command from the CNI script over the UNIX socket. */
+static void handle_del_vhost(char *args) {
+    char endpoint_id[32];
+
+    if (sscanf(args, "%31s", endpoint_id) != 1) {
+        RTE_LOG(ERR, CTRL, "IPC: Invalid DEL_VHOST args\n");
+        return;
+    }
+
+    char vdev_name[64];
+    snprintf(vdev_name, sizeof(vdev_name), "net_vhost_%s", endpoint_id);
+
+    uint16_t port_id;
+    if (rte_eth_dev_get_port_by_name(vdev_name, &port_id) != 0) {
+        RTE_LOG(ERR, CTRL, "Could not find hotplugged port %s to delete\n", vdev_name);
+        return;
+    }
+
+    /* Stop fast path from polling this port */
+    __atomic_and_fetch(&g_ctx->active_ports_mask, ~(1ULL << port_id), __ATOMIC_RELEASE);
+
+    /* Wait a bit for fast path */
+    usleep(1000);
+
+    uint32_t ip = g_ctx->ifaces[port_id].ip;
+    lpm_delete(&g_ctx->lpm, ip, 32);
+
+    rte_eth_dev_stop(port_id);
+    rte_eth_dev_close(port_id);
+
+    if (rte_eal_hotplug_remove("vdev", vdev_name) != 0) {
+        RTE_LOG(ERR, CTRL, "Failed to remove vdev %s\n", vdev_name);
+    }
+
+    g_ctx->ifaces[port_id].configured = false;
+    g_ctx->ifaces[port_id].ip = 0;
+
+    RTE_LOG(INFO, CTRL, "Successfully deleted vhost-user %s on Port %d\n", endpoint_id, port_id);
+}
+
+/* handle_client: Read the command over the UNIX socket. */
 static void handle_client(int client_fd) {
     char buf[512];
 
@@ -52,92 +132,22 @@ static void handle_client(int client_fd) {
     }
     buf[n] = '\0';
 
-    /* Expectation is that the command formatted as:
-     * "ADD_VHOST examplepod 10.128.0.50 00:11:22:33:44:55" */
-    char cmd[32], pod_id[64], ip_str[32], mac_str[32], gw_str[32];
-    int parsed = sscanf(buf, "%31s %63s %31s %31s %31s", cmd, pod_id, ip_str, mac_str, gw_str);
+    /* First word: command, rest: args */
+    char cmd[32], args[256];
+    int parsed = sscanf(buf, "%31s %255[^\n]", cmd, args);
 
     if (parsed >= 2) {
-        if (strcmp(cmd, "ADD_TAP") == 0 && parsed == 5) {
-            char port_name[64];
-            snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
-
-            char devargs[128];
-            snprintf(devargs, sizeof(devargs), "iface=tap_%s", pod_id);
-
-            RTE_LOG(INFO, CTRL, "IPC received: attaching %s with %s\n", port_name, devargs);
-
-            int port_id = attach_tap_port(port_name, devargs);
-            if (port_id >= 0 && port_id < MAX_PORTS) {
-                /* Parse the IPv4 address. */
-                struct in_addr addr, gw_addr;
-                if (inet_pton(AF_INET, ip_str, &addr) == 1 &&
-                    inet_pton(AF_INET, gw_str, &gw_addr) == 1) {
-                    g_ctx->ifaces[port_id].ip = gw_addr.s_addr;
-                    g_ctx->ifaces[port_id].netmask = 0xFFFFFFFF;
-
-                    /* Insert the endpoint IP into the DPDK LPM Table. */
-                    if (lpm_insert(&g_ctx->lpm, addr.s_addr, 32, addr.s_addr, port_id) == true) {
-                        RTE_LOG(INFO, CTRL, "LPM injected: Route %s/32 -> Port %d\n", ip_str,
-                                port_id);
-                    }
-                }
-
-                /* Parse the MAC Address. */
-                uint8_t mac[6];
-                if (sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2],
-                           &mac[3], &mac[4], &mac[5]) == 6) {
-                    memcpy(g_ctx->ifaces[port_id].mac, mac, 6);
-                }
-
-                g_ctx->ifaces[port_id].configured = true;
-
-                /* Flag TAP ports as NAT-Inside. */
-                g_ctx->ifaces[port_id].is_nat_inside = true;
-
-                /* To avoid lock contention in the rx_lcore polling loop, notify it about the new
-                 * port using atomic bitmask. */
-                __atomic_or_fetch(&g_ctx->active_ports_mask, (1ULL << port_id), __ATOMIC_RELEASE);
-
-                /* Response to the CNI. */
-                const char *resp = "OK\n";
-                write(client_fd, resp, strlen(resp));
-            } else {
-                const char *resp = "ERR\n";
-                write(client_fd, resp, strlen(resp));
-            }
-
-        } else if (strcmp(cmd, "DEL_TAP") == 0 && parsed == 2) {
-            char port_name[64];
-            snprintf(port_name, sizeof(port_name), "net_tap_%s", pod_id);
-
-            uint16_t port_id;
-            if (rte_eth_dev_get_port_by_name(port_name, &port_id) == 0) {
-                // Stop lx_lcore from polling this port right now.
-                __atomic_and_fetch(&g_ctx->active_ports_mask, ~(1ULL << port_id), __ATOMIC_RELEASE);
-
-                usleep(1000);
-
-                uint32_t ip = g_ctx->ifaces[port_id].ip;
-                lpm_delete(&g_ctx->lpm, ip, 32);
-
-                rte_eth_dev_stop(port_id);
-                rte_eth_dev_close(port_id);
-
-                rte_eal_hotplug_remove("vdev", port_name);
-
-                g_ctx->ifaces[port_id].configured = false;
-
-                RTE_LOG(INFO, CTRL, "IPC received: destroyed %s\n", port_name);
-
-                const char *resp = "OK\n";
-                write(client_fd, resp, strlen(resp));
-            } else {
-                const char *resp = "ERR\n";
-                write(client_fd, resp, strlen(resp));
-            }
+        if (strcmp(cmd, "ADD_VHOST") == 0) {
+            handle_add_vhost(args);
+        } else if (strcmp(cmd, "DEL_VHOST") == 0) {
+            handle_del_vhost(args);
+        } else {
+            RTE_LOG(WARNING, CTRL, "Unknown IPC command: %s\n", cmd);
         }
+    } else {
+        RTE_LOG(WARNING, CTRL, "Malformed IPC command received.\n");
     }
+
     close(client_fd);
 }
 
@@ -163,7 +173,7 @@ static void *ctrl_plane_thread(void *arg) {
 
     chmod(UPE_IPC_SOCKET, 0600);
 
-    /* Queue up to 10 incoming CNI connections at once. */
+    /* Queue up to 10 incoming client connections at once. */
     listen(server_fd, 10);
 
     RTE_LOG(INFO, CTRL, "Control Plane listening on %s\n", UPE_IPC_SOCKET);
